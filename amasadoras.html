@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Shield · Sector Amasadoras</title>
+
+  <!-- ═══════════════════════════════════════════════════════════
+       PROYECTO SHIELD · ARTEFACTO HIJO — SECTOR AMASADORAS
+       ───────────────────────────────────────────────────────────
+       Este archivo NO contiene una copia del sistema: solo abre el
+       artefacto principal filtrado a un sector. Así hay un solo
+       código que mantener — cualquier cambio al algoritmo se aplica
+       automáticamente al panel general y a las 12 pantallas de
+       sector, sin tener que actualizar 13 archivos distintos.
+
+       PARA CREAR OTRO SECTOR:
+       1. Copia este archivo con otro nombre (ej: colores.html).
+       2. Cambia SECTOR abajo por el área que corresponda.
+       3. Cambia el <title> de arriba.
+
+       ÁREAS VÁLIDAS (deben escribirse exactamente así):
+         DISPERSORAS · ESTANQUES · TEXTURAS · AMASADORAS
+         MADERAS · ENVASADO · ACUMULADORES · COLORES
+         COLORES MADERA · BASES COLORES · MATERIAS PRIMAS · PASTA MURO
+       ═══════════════════════════════════════════════════════════ -->
+
+  <style>
+    html,body{margin:0;height:100%;background:#F5F7FA;
+      font-family:'Segoe UI',system-ui,-apple-system,sans-serif;}
+    .carga{height:100%;display:flex;flex-direction:column;align-items:center;
+      justify-content:center;gap:14px;color:#0D2440;text-align:center;padding:20px;}
+    .escudo{animation:latir 1.9s ease-in-out infinite;transform-origin:center;}
+    @keyframes latir{0%{transform:scale(1)}10%{transform:scale(1.055)}20%{transform:scale(1)}
+      30%{transform:scale(1.035)}42%{transform:scale(1)}100%{transform:scale(1)}}
+    @media (prefers-reduced-motion:reduce){.escudo{animation:none}}
+    .titulo{font-size:16px;font-weight:800;}
+    .sub{font-size:12px;color:#7A8BA0;}
+    .err{display:none;max-width:420px;background:#FDECEC;border:1px solid #F6C9C9;
+      border-radius:12px;padding:14px 18px;font-size:12.5px;color:#7F1D1D;line-height:1.6;}
+    .err a{color:#1B75BB;}
+  </style>
+</head>
+<body>
+  <div class="carga">
+    <svg class="escudo" width="88" height="99" viewBox="0 0 100 112" aria-hidden="true">
+      <path d="M50 4 L92 19 V52 C92 82 50 108 50 108 C50 108 8 82 8 52 V19 Z"
+        fill="none" stroke="#1B75BB" stroke-width="5" stroke-linejoin="round"/>
+    </svg>
+    <div class="titulo">Shield · Sector Amasadoras</div>
+    <div class="sub" id="estado">Abriendo el panel del sector…</div>
+    <div class="err" id="error">
+      No se encontró <b>index.html</b> en esta carpeta.<br/>
+      Sube <b>index_ProyectoShield_v7.html</b> junto a este archivo y renómbralo
+      <b>index.html</b>, o corrige la constante <b>ARCHIVO</b> dentro de este archivo.
+    </div>
+  </div>
+
+<script>
+  // ── Configuración de este sector ──────────────────────────
+  var SECTOR  = "AMASADORAS";     // área que verá esta pantalla
+  var ARCHIVO = "index.html";  // nombre del artefacto principal en el servidor
+  // ──────────────────────────────────────────────────────────
+
+  var destino = ARCHIVO + "?area=" + encodeURIComponent(SECTOR);
+
+  // Verifica que el artefacto principal exista antes de redirigir, para no
+  // dejar al operador en una página en blanco si el archivo no se subió.
+  fetch(ARCHIVO, { method: "HEAD" })
+    .then(function (r) {
+      if (r.ok) { window.location.replace(destino); }
+      else { mostrarError(); }
+    })
+    .catch(function () {
+      // Si el servidor no permite HEAD (o se abre con file://), intenta igual.
+      window.location.replace(destino);
+    });
+
+  function mostrarError() {
+    document.getElementById("estado").textContent = "No se pudo abrir el panel del sector.";
+    document.getElementById("error").style.display = "block";
+  }
+</script>
+</body>
+</html>

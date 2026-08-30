@@ -62,7 +62,12 @@
   var ARCHIVO = "index.html";  // nombre del artefacto principal en el servidor
   // ──────────────────────────────────────────────────────────
 
-  var destino = ARCHIVO + "?area=" + encodeURIComponent(SECTOR);
+  // Anti-caché: sin esto el navegador puede reutilizar una copia vieja de index.html
+  // (por ejemplo una anterior a conectar el backend) y las acciones del operador
+  // quedarían guardadas solo en esa pestaña, sin llegar nunca a la Sheet.
+  // El sello cambia cada 5 minutos: fuerza recargas frescas sin descargar en cada clic.
+  var SELLO = Math.floor(Date.now() / 300000);
+  var destino = ARCHIVO + "?area=" + encodeURIComponent(SECTOR) + "&v=" + SELLO;
 
   // Verifica que el artefacto principal exista antes de redirigir, para no
   // dejar al operador en una página en blanco si el archivo no se subió.

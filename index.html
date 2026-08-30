@@ -55,7 +55,7 @@ const { useState, useMemo, useEffect, useRef } = React;
    — ver SETUP_BACKEND.md — para que el panel padre y las pantallas
    de sector compartan una sola configuración y un solo histórico.
    ═══════════════════════════════════════════════════════════ */
-const BACKEND_URL = "";
+const BACKEND_URL = "https://script.google.com/macros/s/AKfycbx6XL1-n0ZQjI472b6ng6rfUbZL8tepNxt47igX9N-mZoQ0ZofbC4u7cQk0zMPVUTDv/exec";
 
 /* Clave que se envía automáticamente al backend al guardar configuración —
    sin pedirla en pantalla, para que el acceso quede abierto por ahora.
@@ -2316,7 +2316,19 @@ function App(){
     }
     if(e&&e.overrides){
       const j=JSON.stringify(e.overrides);
-      if(j!==ultimoOvJson.current){ ultimoOvJson.current=j; setOverrides(e.overrides); }
+      // Nunca descartar trabajo local: si el POST de una acción falló, esos cambios
+      // sólo existen en este navegador. Si los pisáramos con lo que hay en la Sheet,
+      // el operador vería su trabajo desaparecer sin explicación. Se fusiona dando
+      // prioridad al servidor por equipo, pero conservando los equipos que el
+      // servidor todavía no conoce.
+      if(j!==ultimoOvJson.current){
+        ultimoOvJson.current=j;
+        setOverrides(prev=>{
+          const pendientes={};
+          Object.keys(prev||{}).forEach(id=>{ if(!(id in e.overrides)) pendientes[id]=prev[id]; });
+          return {...pendientes, ...e.overrides};
+        });
+      }
     }
     if(a&&a.temp!=null){
       const nuevoAmb={temp:a.temp,humedad:a.humedad,actualizado:a.actualizadoEn,por:a.actualizadoPor};

@@ -1,0 +1,2443 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Proyecto Shield · Codelpa</title>
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <style>
+    *{box-sizing:border-box;margin:0;padding:0;}
+    body{background:#F5F7FA;font-family:'Segoe UI',system-ui,-apple-system,sans-serif;color:#0D2440;-webkit-tap-highlight-color:transparent;}
+    ::-webkit-scrollbar{width:7px;height:7px;}
+    ::-webkit-scrollbar-track{background:transparent;}
+    ::-webkit-scrollbar-thumb{background:#CBD5E1;border-radius:4px;}
+    input,select,textarea,button{font-family:inherit;}
+    button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid #1B75BB;outline-offset:2px;}
+    input[type=number]{-moz-appearance:textfield;}
+    @keyframes fadeUp{0%{opacity:0;transform:translateY(14px);}100%{opacity:1;transform:translateY(0);}}
+    @keyframes confettiFall{0%{transform:translateY(-20px) rotate(0deg);opacity:1;}100%{transform:translateY(130px) rotate(720deg);opacity:0;}}
+    @keyframes scaleIn{0%{transform:scale(.86);opacity:0;}100%{transform:scale(1);opacity:1;}}
+    @keyframes spinSlow{to{transform:rotate(360deg);}}
+    /* Latido tipo corazón: dos pulsos seguidos y una pausa, no un pulso uniforme */
+    @keyframes latido{
+      0%{transform:scale(1);}
+      10%{transform:scale(1.055);}
+      20%{transform:scale(1);}
+      30%{transform:scale(1.035);}
+      42%{transform:scale(1);}
+      100%{transform:scale(1);}
+    }
+    @keyframes latidoHalo{
+      0%{transform:scale(.96);opacity:.42;}
+      20%{transform:scale(1.12);opacity:.16;}
+      45%{transform:scale(1.18);opacity:0;}
+      100%{transform:scale(.96);opacity:0;}
+    }
+    .latido{animation:latido 1.9s ease-in-out infinite;transform-origin:center center;}
+    .latido-halo{animation:latidoHalo 1.9s ease-in-out infinite;}
+    .anim{animation:fadeUp .28s ease both;}
+    .pop{animation:scaleIn .22s cubic-bezier(.2,.9,.3,1.2) both;}
+    @media (prefers-reduced-motion: reduce){*{animation:none!important;transition:none!important;}}
+  </style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const { useState, useMemo, useEffect, useRef } = React;
+
+/* ═══════════════════════════════════════════════════════════
+   BACKEND COMPARTIDO (Apps Script + Google Sheets) · opcional
+   ───────────────────────────────────────────────────────────
+   Vacío = modo local por navegador (idéntico al comportamiento
+   anterior). Pega aquí la URL /exec una vez desplegado el backend
+   — ver SETUP_BACKEND.md — para que el panel padre y las pantallas
+   de sector compartan una sola configuración y un solo histórico.
+   ═══════════════════════════════════════════════════════════ */
+const BACKEND_URL = "";
+
+/* Clave que se envía automáticamente al backend al guardar configuración —
+   sin pedirla en pantalla, para que el acceso quede abierto por ahora.
+   Debe coincidir con el hash guardado en CONFIG_DEFAULT.hashClave (ver pB.js)
+   y con lo que valide Codigo.gs en el servidor. Cuando definan un modelo de
+   acceso real, este es el punto a reemplazar. */
+const CLAVE_BACKEND_AUTOMATICA = "shield2026";
+
+async function apiGet(accion, extra={}){
+  if(!BACKEND_URL) return null;
+  try{
+    const qs=new URLSearchParams({action:accion,...extra}).toString();
+    const r=await fetch(`${BACKEND_URL}?${qs}`);
+    const j=await r.json();
+    return j&&j.ok?j:null;
+  }catch(err){ return null; }
+}
+async function apiPost(accion, cuerpo={}){
+  if(!BACKEND_URL) return {ok:false,error:"backend no configurado"};
+  try{
+    const r=await fetch(BACKEND_URL,{method:"POST",
+      headers:{"Content-Type":"text/plain;charset=utf-8"},   // evita preflight CORS en Apps Script
+      body:JSON.stringify({action:accion,...cuerpo})});
+    return await r.json();
+  }catch(err){ return {ok:false,error:String(err)}; }
+}
+
+/* ═══════════════════════════════════════════════════════════
+   PALETA CODELPA
+   ═══════════════════════════════════════════════════════════ */
+const CP = { navy:"#0D2440", blue:"#1B75BB", blueSoft:"#E7F1F9", yellow:"#F5A800",
+             yellowSoft:"#FFF6E2", bg:"#F5F7FA", line:"#E4EAF2", mute:"#7A8BA0" };
+
+/* ═══════════════════════════════════════════════════════════
+   EQUIPOS (81 · estanques_SM.xlsx)
+   ═══════════════════════════════════════════════════════════ */
+const EQUIPOS_BASE = [
+  {id:1,area:"DISPERSORAS",codigo:"D3001 - ESTANQUE 1",tipo:"DECORATIVO",responsable:"ALVARO CORDERO",dias_det:1,atp:80,dias_h2o2:3,dias_pig:12,ultima_san:"03/07/2025",notas:""},
+  {id:2,area:"DISPERSORAS",codigo:"D3001 - ESTANQUE 2",tipo:"DECORATIVO",responsable:"ALVARO CORDERO",dias_det:1,atp:70,dias_h2o2:4,dias_pig:10,ultima_san:"04/07/2025",notas:""},
+  {id:3,area:"DISPERSORAS",codigo:"D3002 - ESTANQUE 1",tipo:"DECORATIVO",responsable:"ALVARO CORDERO",dias_det:5,atp:2800,dias_h2o2:30,dias_pig:46,ultima_san:"20/04/2025",notas:"Sin sanitización prolongada"},
+  {id:4,area:"DISPERSORAS",codigo:"D3002 - ESTANQUE 2",tipo:"DECORATIVO",responsable:"ALVARO CORDERO",dias_det:3,atp:700,dias_h2o2:16,dias_pig:null,ultima_san:"10/06/2025",notas:""},
+  {id:5,area:"ESTANQUES",codigo:"12001",tipo:"DECORATIVO",responsable:"ALVARO CORDERO",dias_det:1,atp:75,dias_h2o2:3,dias_pig:9,ultima_san:"05/07/2025",notas:""},
+  {id:6,area:"ESTANQUES",codigo:"12002",tipo:"DECORATIVO",responsable:"ALVARO CORDERO",dias_det:2,atp:320,dias_h2o2:10,dias_pig:null,ultima_san:"22/06/2025",notas:""},
+  {id:7,area:"ESTANQUES",codigo:"12003",tipo:"DECORATIVO",responsable:"ALVARO CORDERO",dias_det:1,atp:85,dias_h2o2:4,dias_pig:11,ultima_san:"04/07/2025",notas:""},
+  {id:8,area:"ESTANQUES",codigo:"12004",tipo:"DECORATIVO",responsable:"ALVARO CORDERO",dias_det:0,atp:60,dias_h2o2:2,dias_pig:8,ultima_san:"07/07/2025",notas:""},
+  {id:9,area:"ESTANQUES",codigo:"12005",tipo:"DECORATIVO",responsable:"ALVARO CORDERO",dias_det:1,atp:78,dias_h2o2:3,dias_pig:null,ultima_san:"06/07/2025",notas:""},
+  {id:10,area:"ESTANQUES",codigo:"12006",tipo:"DECORATIVO",responsable:"ALVARO CORDERO",dias_det:4,atp:1900,dias_h2o2:27,dias_pig:null,ultima_san:"01/05/2025",notas:"Remanente prolongado"},
+  {id:11,area:"ESTANQUES",codigo:"9001",tipo:"DECORATIVO",responsable:"ALVARO CORDERO",dias_det:1,atp:72,dias_h2o2:3,dias_pig:7,ultima_san:"07/07/2025",notas:""},
+  {id:12,area:"ESTANQUES",codigo:"9002",tipo:"DECORATIVO",responsable:"ALVARO CORDERO",dias_det:1,atp:88,dias_h2o2:4,dias_pig:null,ultima_san:"05/07/2025",notas:""},
+  {id:13,area:"ESTANQUES",codigo:"9003",tipo:"DECORATIVO",responsable:"ALVARO CORDERO",dias_det:0,atp:65,dias_h2o2:2,dias_pig:9,ultima_san:"07/07/2025",notas:""},
+  {id:14,area:"ESTANQUES",codigo:"9004",tipo:"DECORATIVO",responsable:"ALVARO CORDERO",dias_det:3,atp:720,dias_h2o2:17,dias_pig:null,ultima_san:"08/06/2025",notas:""},
+  {id:15,area:"ESTANQUES",codigo:"9005",tipo:"DECORATIVO",responsable:"ALVARO CORDERO",dias_det:1,atp:80,dias_h2o2:3,dias_pig:null,ultima_san:"06/07/2025",notas:""},
+  {id:16,area:"ESTANQUES",codigo:"9006",tipo:"DECORATIVO",responsable:"ALVARO CORDERO",dias_det:1,atp:92,dias_h2o2:5,dias_pig:13,ultima_san:"03/07/2025",notas:""},
+  {id:17,area:"TEXTURAS",codigo:"312 - TACHO 1",tipo:"TEXTURAS",responsable:"CAMILO CONTRERAS",dias_det:1,atp:78,dias_h2o2:3,dias_pig:null,ultima_san:"05/07/2025",notas:"Sin PIG"},
+  {id:18,area:"TEXTURAS",codigo:"312 - TACHO 2",tipo:"TEXTURAS",responsable:"CAMILO CONTRERAS",dias_det:1,atp:82,dias_h2o2:4,dias_pig:null,ultima_san:"04/07/2025",notas:""},
+  {id:19,area:"TEXTURAS",codigo:"312 - TACHO 3",tipo:"TEXTURAS",responsable:"CAMILO CONTRERAS",dias_det:3,atp:680,dias_h2o2:15,dias_pig:null,ultima_san:"12/06/2025",notas:""},
+  {id:20,area:"TEXTURAS",codigo:"312 - TACHO 4",tipo:"TEXTURAS",responsable:"CAMILO CONTRERAS",dias_det:0,atp:68,dias_h2o2:2,dias_pig:null,ultima_san:"07/07/2025",notas:""},
+  {id:21,area:"TEXTURAS",codigo:"313 - TACHO 1",tipo:"TEXTURAS",responsable:"CAMILO CONTRERAS",dias_det:1,atp:88,dias_h2o2:4,dias_pig:null,ultima_san:"04/07/2025",notas:""},
+  {id:22,area:"TEXTURAS",codigo:"Pasta Lisa F5550",tipo:"TEXTURAS",responsable:"CAMILO CONTRERAS",dias_det:2,atp:290,dias_h2o2:9,dias_pig:null,ultima_san:"24/06/2025",notas:""},
+  {id:23,area:"TEXTURAS",codigo:"Pasta Lisa F3395",tipo:"TEXTURAS",responsable:"CAMILO CONTRERAS",dias_det:1,atp:76,dias_h2o2:3,dias_pig:null,ultima_san:"06/07/2025",notas:""},
+  {id:24,area:"AMASADORAS",codigo:"301",tipo:"QRM",responsable:"CAMILO CONTRERAS",dias_det:1,atp:72,dias_h2o2:3,dias_pig:null,ultima_san:"06/07/2025",notas:""},
+  {id:25,area:"AMASADORAS",codigo:"302",tipo:"QRM",responsable:"CAMILO CONTRERAS",dias_det:1,atp:88,dias_h2o2:4,dias_pig:null,ultima_san:"04/07/2025",notas:""},
+  {id:26,area:"AMASADORAS",codigo:"303 (PLANETARIA)",tipo:"TEXTURAS",responsable:"CAMILO CONTRERAS",dias_det:0,atp:65,dias_h2o2:2,dias_pig:null,ultima_san:"07/07/2025",notas:""},
+  {id:27,area:"AMASADORAS",codigo:"304",tipo:"TEXTURAS",responsable:"CAMILO CONTRERAS",dias_det:2,atp:310,dias_h2o2:10,dias_pig:null,ultima_san:"23/06/2025",notas:""},
+  {id:28,area:"AMASADORAS",codigo:"307",tipo:"TEXTURAS",responsable:"CAMILO CONTRERAS",dias_det:1,atp:80,dias_h2o2:3,dias_pig:null,ultima_san:"05/07/2025",notas:""},
+  {id:29,area:"AMASADORAS",codigo:"309",tipo:"TEXTURAS",responsable:"CAMILO CONTRERAS",dias_det:1,atp:90,dias_h2o2:4,dias_pig:null,ultima_san:"04/07/2025",notas:""},
+  {id:30,area:"AMASADORAS",codigo:"311",tipo:"TEXTURAS",responsable:"CAMILO CONTRERAS",dias_det:1,atp:85,dias_h2o2:4,dias_pig:null,ultima_san:"05/07/2025",notas:""},
+  {id:31,area:"AMASADORAS",codigo:"PIT-TACHO-1",tipo:"LATEX",responsable:"ALVARO CORDERO",dias_det:1,atp:78,dias_h2o2:3,dias_pig:null,ultima_san:"07/07/2025",notas:"LATEX"},
+  {id:32,area:"AMASADORAS",codigo:"PIT-TACHO-2",tipo:"LATEX",responsable:"ALVARO CORDERO",dias_det:4,atp:1850,dias_h2o2:26,dias_pig:null,ultima_san:"05/05/2025",notas:"LATEX - sin sanitización reciente"},
+  {id:33,area:"AMASADORAS",codigo:"PIT-TACHO-3",tipo:"LATEX",responsable:"ALVARO CORDERO",dias_det:1,atp:82,dias_h2o2:4,dias_pig:null,ultima_san:"06/07/2025",notas:"LATEX"},
+  {id:34,area:"AMASADORAS",codigo:"PIT-TACHO-4",tipo:"LATEX",responsable:"ALVARO CORDERO",dias_det:1,atp:90,dias_h2o2:4,dias_pig:null,ultima_san:"04/07/2025",notas:"LATEX"},
+  {id:35,area:"MADERAS",codigo:"C200 - ESTANQUE 1",tipo:"MADERA",responsable:"DIEGO SEPULVEDA",dias_det:1,atp:75,dias_h2o2:3,dias_pig:10,ultima_san:"06/07/2025",notas:""},
+  {id:36,area:"MADERAS",codigo:"C200 - ESTANQUE 2",tipo:"MADERA",responsable:"DIEGO SEPULVEDA",dias_det:1,atp:88,dias_h2o2:4,dias_pig:14,ultima_san:"04/07/2025",notas:""},
+  {id:37,area:"MADERAS",codigo:"360 - ESTANQUE 1",tipo:"MADERA",responsable:"DIEGO SEPULVEDA",dias_det:0,atp:65,dias_h2o2:2,dias_pig:8,ultima_san:"07/07/2025",notas:""},
+  {id:38,area:"MADERAS",codigo:"360 - ESTANQUE 2",tipo:"MADERA",responsable:"DIEGO SEPULVEDA",dias_det:2,atp:300,dias_h2o2:9,dias_pig:24,ultima_san:"24/06/2025",notas:""},
+  {id:39,area:"MADERAS",codigo:"FILTRO C-200",tipo:"MADERA",responsable:"DIEGO SEPULVEDA",dias_det:1,atp:70,dias_h2o2:3,dias_pig:11,ultima_san:"06/07/2025",notas:"Filtro"},
+  {id:40,area:"ENVASADO",codigo:"G1 - TACHO 1",tipo:"ENVASADO",responsable:"ALVARO CORDERO",dias_det:1,atp:68,dias_h2o2:2,dias_pig:9,ultima_san:"07/07/2025",notas:""},
+  {id:41,area:"ENVASADO",codigo:"G1 - TACHO 2",tipo:"ENVASADO",responsable:"ALVARO CORDERO",dias_det:1,atp:72,dias_h2o2:3,dias_pig:11,ultima_san:"06/07/2025",notas:""},
+  {id:42,area:"ENVASADO",codigo:"TERMINALES ENVASADORAS G2",tipo:"ENVASADO",responsable:"ALVARO CORDERO",dias_det:1,atp:80,dias_h2o2:3,dias_pig:13,ultima_san:"05/07/2025",notas:""},
+  {id:43,area:"ENVASADO",codigo:"T1 - TACHO 1",tipo:"ENVASADO",responsable:"ALVARO CORDERO",dias_det:0,atp:62,dias_h2o2:2,dias_pig:8,ultima_san:"07/07/2025",notas:""},
+  {id:44,area:"ENVASADO",codigo:"T1 - TACHO 2",tipo:"ENVASADO",responsable:"ALVARO CORDERO",dias_det:3,atp:660,dias_h2o2:15,dias_pig:31,ultima_san:"11/06/2025",notas:""},
+  {id:45,area:"ENVASADO",codigo:"Tacho Lavado G1 Setup",tipo:"ENVASADO",responsable:"ALVARO CORDERO",dias_det:1,atp:85,dias_h2o2:4,dias_pig:12,ultima_san:"05/07/2025",notas:""},
+  {id:46,area:"ACUMULADORES",codigo:"ENVASADO T1-G1 (acum.)",tipo:"ENVASADO",responsable:"ALVARO CORDERO",dias_det:0,atp:58,dias_h2o2:2,dias_pig:7,ultima_san:"07/07/2025",notas:"Acumulador agua"},
+  {id:47,area:"COLORES",codigo:"C1",tipo:"COLORES",responsable:"DIEGO SEPULVEDA",dias_det:1,atp:75,dias_h2o2:3,dias_pig:null,ultima_san:"06/07/2025",notas:""},
+  {id:48,area:"COLORES",codigo:"C2",tipo:"COLORES",responsable:"DIEGO SEPULVEDA",dias_det:1,atp:82,dias_h2o2:4,dias_pig:null,ultima_san:"05/07/2025",notas:""},
+  {id:49,area:"COLORES",codigo:"C3",tipo:"COLORES",responsable:"DIEGO SEPULVEDA",dias_det:0,atp:68,dias_h2o2:2,dias_pig:null,ultima_san:"07/07/2025",notas:""},
+  {id:50,area:"COLORES",codigo:"C4",tipo:"COLORES",responsable:"DIEGO SEPULVEDA",dias_det:2,atp:310,dias_h2o2:9,dias_pig:null,ultima_san:"24/06/2025",notas:""},
+  {id:51,area:"COLORES",codigo:"C5",tipo:"COLORES",responsable:"DIEGO SEPULVEDA",dias_det:1,atp:78,dias_h2o2:3,dias_pig:null,ultima_san:"06/07/2025",notas:""},
+  {id:52,area:"COLORES",codigo:"C6",tipo:"COLORES",responsable:"DIEGO SEPULVEDA",dias_det:1,atp:85,dias_h2o2:4,dias_pig:null,ultima_san:"05/07/2025",notas:""},
+  {id:53,area:"COLORES",codigo:"C7",tipo:"COLORES",responsable:"DIEGO SEPULVEDA",dias_det:0,atp:65,dias_h2o2:2,dias_pig:null,ultima_san:"07/07/2025",notas:""},
+  {id:54,area:"COLORES",codigo:"C8",tipo:"COLORES",responsable:"DIEGO SEPULVEDA",dias_det:5,atp:2900,dias_h2o2:31,dias_pig:null,ultima_san:"18/04/2025",notas:"Lote previo contaminado"},
+  {id:55,area:"COLORES",codigo:"C9",tipo:"COLORES",responsable:"DIEGO SEPULVEDA",dias_det:1,atp:72,dias_h2o2:3,dias_pig:null,ultima_san:"07/07/2025",notas:""},
+  {id:56,area:"COLORES",codigo:"C10",tipo:"COLORES",responsable:"DIEGO SEPULVEDA",dias_det:1,atp:88,dias_h2o2:4,dias_pig:null,ultima_san:"05/07/2025",notas:""},
+  {id:57,area:"COLORES",codigo:"C11",tipo:"COLORES",responsable:"DIEGO SEPULVEDA",dias_det:0,atp:70,dias_h2o2:2,dias_pig:null,ultima_san:"07/07/2025",notas:""},
+  {id:58,area:"COLORES",codigo:"C12",tipo:"COLORES",responsable:"DIEGO SEPULVEDA",dias_det:3,atp:710,dias_h2o2:16,dias_pig:null,ultima_san:"09/06/2025",notas:""},
+  {id:59,area:"COLORES",codigo:"Olla Envasado",tipo:"COLORES",responsable:"DIEGO SEPULVEDA",dias_det:1,atp:82,dias_h2o2:3,dias_pig:null,ultima_san:"05/07/2025",notas:""},
+  {id:60,area:"COLORES MADERA",codigo:"M5",tipo:"COLORES MADERA",responsable:"DIEGO SEPULVEDA",dias_det:1,atp:75,dias_h2o2:3,dias_pig:10,ultima_san:"06/07/2025",notas:""},
+  {id:61,area:"COLORES MADERA",codigo:"M6",tipo:"COLORES MADERA",responsable:"DIEGO SEPULVEDA",dias_det:1,atp:85,dias_h2o2:4,dias_pig:14,ultima_san:"04/07/2025",notas:""},
+  {id:62,area:"COLORES MADERA",codigo:"Terminales Envase",tipo:"COLORES MADERA",responsable:"DIEGO SEPULVEDA",dias_det:0,atp:65,dias_h2o2:2,dias_pig:8,ultima_san:"07/07/2025",notas:"Cambio trimestral"},
+  {id:63,area:"COLORES MADERA",codigo:"Bomba Envasado",tipo:"COLORES MADERA",responsable:"DIEGO SEPULVEDA",dias_det:1,atp:80,dias_h2o2:3,dias_pig:13,ultima_san:"05/07/2025",notas:""},
+  {id:64,area:"BASES COLORES",codigo:"6001",tipo:"BASES COLORES",responsable:"DIEGO SEPULVEDA",dias_det:1,atp:78,dias_h2o2:3,dias_pig:null,ultima_san:"06/07/2025",notas:""},
+  {id:65,area:"BASES COLORES",codigo:"6002",tipo:"BASES COLORES",responsable:"DIEGO SEPULVEDA",dias_det:1,atp:88,dias_h2o2:4,dias_pig:null,ultima_san:"05/07/2025",notas:""},
+  {id:66,area:"BASES COLORES",codigo:"6003",tipo:"BASES COLORES",responsable:"DIEGO SEPULVEDA",dias_det:0,atp:65,dias_h2o2:2,dias_pig:null,ultima_san:"07/07/2025",notas:""},
+  {id:67,area:"BASES COLORES",codigo:"6004",tipo:"BASES COLORES",responsable:"DIEGO SEPULVEDA",dias_det:3,atp:690,dias_h2o2:15,dias_pig:null,ultima_san:"11/06/2025",notas:""},
+  {id:68,area:"BASES COLORES",codigo:"6005",tipo:"BASES COLORES",responsable:"DIEGO SEPULVEDA",dias_det:1,atp:82,dias_h2o2:3,dias_pig:null,ultima_san:"06/07/2025",notas:""},
+  {id:69,area:"BASES COLORES",codigo:"3001",tipo:"BASES COLORES",responsable:"DIEGO SEPULVEDA",dias_det:1,atp:80,dias_h2o2:4,dias_pig:null,ultima_san:"05/07/2025",notas:""},
+  {id:70,area:"BASES COLORES",codigo:"3002",tipo:"BASES COLORES",responsable:"DIEGO SEPULVEDA",dias_det:1,atp:72,dias_h2o2:3,dias_pig:null,ultima_san:"06/07/2025",notas:""},
+  {id:71,area:"BASES COLORES",codigo:"3003",tipo:"BASES COLORES",responsable:"DIEGO SEPULVEDA",dias_det:1,atp:88,dias_h2o2:4,dias_pig:null,ultima_san:"05/07/2025",notas:""},
+  {id:72,area:"BASES COLORES",codigo:"3004",tipo:"BASES COLORES",responsable:"DIEGO SEPULVEDA",dias_det:1,atp:85,dias_h2o2:4,dias_pig:null,ultima_san:"06/07/2025",notas:""},
+  {id:73,area:"MATERIAS PRIMAS",codigo:"ESTANQUE 1 · BASF",tipo:"G0980",responsable:"RAFAEL REYES",dias_det:1,atp:68,dias_h2o2:3,dias_pig:10,ultima_san:"06/07/2025",notas:""},
+  {id:74,area:"MATERIAS PRIMAS",codigo:"ESTANQUE 2 · CLORAMON",tipo:"G0980",responsable:"RAFAEL REYES",dias_det:1,atp:72,dias_h2o2:3,dias_pig:12,ultima_san:"06/07/2025",notas:""},
+  {id:75,area:"MATERIAS PRIMAS",codigo:"ESTANQUE 3 · ARCHROMA",tipo:"G0980",responsable:"RAFAEL REYES",dias_det:1,atp:80,dias_h2o2:4,dias_pig:14,ultima_san:"05/07/2025",notas:""},
+  {id:76,area:"MATERIAS PRIMAS",codigo:"ESTANQUE 4 (INHABILITADO)",tipo:"G0980",responsable:"RAFAEL REYES",dias_det:0,atp:null,dias_h2o2:null,dias_pig:null,ultima_san:"—",notas:"INHABILITADO"},
+  {id:77,area:"MATERIAS PRIMAS",codigo:"Piping descarga Emulsiones",tipo:"Piping",responsable:"RAFAEL REYES",dias_det:1,atp:78,dias_h2o2:3,dias_pig:14,ultima_san:"05/07/2025",notas:""},
+  {id:78,area:"PASTA MURO",codigo:"MÁQUINA 1",tipo:"PASTA MURO",responsable:"CAMILO CONTRERAS",dias_det:1,atp:80,dias_h2o2:3,dias_pig:null,ultima_san:"05/07/2025",notas:""},
+  {id:79,area:"PASTA MURO",codigo:"MÁQUINA 2",tipo:"PASTA MURO",responsable:"CAMILO CONTRERAS",dias_det:1,atp:88,dias_h2o2:4,dias_pig:null,ultima_san:"04/07/2025",notas:""},
+  {id:80,area:"PASTA MURO",codigo:"COHETE 1",tipo:"PASTA MURO",responsable:"CAMILO CONTRERAS",dias_det:0,atp:65,dias_h2o2:2,dias_pig:null,ultima_san:"07/07/2025",notas:""},
+  {id:81,area:"PASTA MURO",codigo:"COHETE 2",tipo:"PASTA MURO",responsable:"CAMILO CONTRERAS",dias_det:1,atp:82,dias_h2o2:4,dias_pig:null,ultima_san:"06/07/2025",notas:""},
+];
+const AREAS=[...new Set(EQUIPOS_BASE.map(e=>e.area))];
+
+/* ── Importancia de área ─────────────────────────────────────
+   No toca el IRM (que mide contaminación) — desplaza los cortes del
+   semáforo SOLO para esa área, igual que "aceleración ambiental" no
+   toca el IRM, desplaza los días que ve cada variable. Es la misma
+   distinción de siempre: esto es tolerancia/política (qué tan rápido
+   se exige acción), no una re-estimación del riesgo. "Media" es el
+   valor por defecto de toda área sin configurar y tiene ajuste 0, así
+   que instalar esta función no reclasifica ningún equipo existente
+   hasta que el jefe asigne una importancia distinta.
+   ═══════════════════════════════════════════════════════════ */
+const IMPORTANCIA_AREA={
+  baja:    {label:"Baja",    ajuste: 8,  c:"#94A3B8", d:"Bajo volumen o impacto acotado ante una falla. Más margen antes de exigir acción."},
+  media:   {label:"Media",   ajuste: 0,  c:"#3B82F6", d:"Valor por defecto: mismos cortes que el resto de la planta."},
+  alta:    {label:"Alta",    ajuste:-8,  c:"#D97706", d:"Alto volumen o impacto relevante. Exige acción con menos margen que el resto."},
+  critica: {label:"Crítica", ajuste:-15, c:"#DC2626", d:"Volumen muy alto, daño potencial severo o historial de fallas repetidas. Máxima exigencia."},
+};
+function importanciaDe(area,cfg){
+  return cfg.importanciaAreas?.[area]?.nivel || "media";
+}
+function cortesDeArea(area,cfg){
+  const imp=IMPORTANCIA_AREA[importanciaDe(area,cfg)]||IMPORTANCIA_AREA.media;
+  const c=cfg.cortes;
+  return {
+    medio:Math.max(0,c.medio+imp.ajuste),
+    alto:Math.max(0,c.alto+imp.ajuste),
+    critico:Math.max(0,c.critico+imp.ajuste),
+  };
+}
+const NIVELES_ORD=["critico","alto","medio","bajo"];
+const NC={
+  bajo:{bg:"#16A34A",soft:"#E9F9EE",txt:"#116B37",label:"ÓPTIMO",tag:"< 40"},
+  medio:{bg:"#D97706",soft:"#FEF4E0",txt:"#8A4B06",label:"PRECAUCIÓN",tag:"40–64"},
+  alto:{bg:"#EA580C",soft:"#FFEEE3",txt:"#7C2D12",label:"ALERTA",tag:"65–79"},
+  critico:{bg:"#DC2626",soft:"#FDECEC",txt:"#7F1D1D",label:"CRÍTICO",tag:"≥ 80"},
+  inhabilitado:{bg:"#94A3B8",soft:"#F1F5F9",txt:"#475569",label:"INHABILITADO",tag:"—"},
+  piloto_fuera:{bg:"#94A3B8",soft:"#F8FAFC",txt:"#64748B",label:"FUERA DE PILOTO",tag:"❄️"},
+};
+const LOGO_CODELPA = "data:image/png;base64,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";
+
+/* ═══════════════════════════════════════════════════════════
+   CATÁLOGO DE VARIABLES DEL ALGORITMO IRM
+   ───────────────────────────────────────────────────────────
+   pesoRec : ponderación recomendada por I+D
+   poder   : poder diagnóstico (0-100). Medición directa de carga
+             microbiana > proxy fisicoquímico > proxy de tiempo.
+             Define cuánta CONFIANZA aporta la variable al modelo.
+   dir     : "asc" (a mayor valor, mayor riesgo) | "desc" (inverso)
+   tramos  : lim = límite del tramo · r = riesgo 0-100 · lim null = resto
+   ═══════════════════════════════════════════════════════════ */
+const VARIABLES_BASE = [
+  { id:"det", nombre:"Días detenido con remanente", unidad:"días", campo:"dias_det", dir:"asc",
+    clase:"Proxy de exposición", poder:65, pesoRec:20, activa:true, disponible:true, tiempoDependiente:true,
+    desc:"Tiempo que el remanente de pintura permanece en el equipo sin limpieza. Es la ventana de colonización.",
+    fuente:"Bitácora de producción", sinDato:65,
+    tramos:[{lim:2,r:10,txt:"≤ 1 día"},{lim:3,r:40,txt:"2 días"},{lim:5,r:65,txt:"3–4 días"},{lim:null,r:100,txt:"≥ 5 días"}] },
+
+  { id:"fab", nombre:"Días desde la última fabricación", unidad:"días", campo:"dias_fab", dir:"asc",
+    clase:"Proxy de rotación", poder:55, pesoRec:10, activa:true, disponible:true, tiempoDependiente:true,
+    desc:"Un equipo sin rotación acumula agua estancada y película seca en paredes. Sale del programa de arrastre por uso.",
+    fuente:"Bitácora de producción", sinDato:60,
+    tramos:[{lim:3,r:10,txt:"≤ 2 días"},{lim:8,r:30,txt:"3–7 días"},{lim:15,r:60,txt:"8–14 días"},{lim:30,r:80,txt:"15–29 días"},{lim:null,r:100,txt:"≥ 30 días"}] },
+
+  { id:"paa", nombre:"Días desde sanitización PAA 150 ppm", unidad:"días", campo:"dias_paa", dir:"asc",
+    clase:"Proxy de protección activa", poder:70, pesoRec:20, activa:true, disponible:true, tiempoDependiente:true,
+    desc:"Reemplaza al H₂O₂: el ácido peracético no es neutralizado por catalasa y no deja residuo iniciador de polimerización acrílica. Referencia: 150 ppm en superficie, 300 ppm en CIP.",
+    fuente:"Registro de nebulización / CIP", sinDato:85,
+    tramos:[{lim:6,r:10,txt:"≤ 5 días"},{lim:16,r:40,txt:"6–15 días"},{lim:31,r:75,txt:"16–30 días"},{lim:null,r:100,txt:"> 30 días"}] },
+
+  { id:"san", nombre:"Días desde la sanitización completa", unidad:"días", campo:"dias_san", dir:"asc",
+    clase:"Proxy de calendario", poder:45, pesoRec:10, activa:true, disponible:true, tiempoDependiente:true,
+    desc:"Mantiene la trazabilidad del método antiguo por calendario como piso de seguridad, sin que sea el criterio de decisión.",
+    fuente:"Bitácora de sanitización", sinDato:70,
+    tramos:[{lim:31,r:10,txt:"≤ 30 días"},{lim:61,r:35,txt:"31–60 días"},{lim:91,r:65,txt:"61–90 días"},{lim:181,r:85,txt:"91–180 días"},{lim:null,r:100,txt:"> 180 días"}] },
+
+  { id:"ph", nombre:"pH del remanente", unidad:"pH", campo:"ph", dir:"desc",
+    clase:"Proxy fisicoquímico", poder:60, pesoRec:10, activa:true, disponible:true,
+    desc:"La caída de pH es el primer síntoma medible del deterioro microbiano en látex (producción de ácidos orgánicos). Se mide con pHmetro de bolsillo: costo marginal cero.",
+    fuente:"pHmetro de bolsillo", sinDato:55,
+    tramos:[{lim:8.5,r:10,txt:"≥ 8,5"},{lim:8.0,r:35,txt:"8,0–8,4"},{lim:7.5,r:70,txt:"7,5–7,9"},{lim:null,r:100,txt:"< 7,5"}] },
+
+  { id:"hist", nombre:"Eventos de contaminación (12 meses)", unidad:"eventos", campo:"hist", dir:"asc",
+    clase:"Proxy histórico", poder:55, pesoRec:10, activa:true, disponible:true,
+    desc:"La reincidencia es el mejor predictor barato que existe: un equipo que ya falló tiene biofilm residual y suele volver a fallar.",
+    fuente:"Registro de no conformidades", sinDato:45,
+    tramos:[{lim:1,r:10,txt:"Sin eventos"},{lim:2,r:50,txt:"1 evento"},{lim:3,r:80,txt:"2 eventos"},{lim:null,r:100,txt:"≥ 3 eventos"}] },
+
+  { id:"placa", nombre:"Recuento en placa", unidad:"UFC/g", campo:"placa", dir:"asc",
+    clase:"Medición directa (48–72 h)", poder:85, pesoRec:15, activa:false, disponible:false,
+    desc:"Método actual de referencia. Es directo y confiable, pero retrospectivo: el resultado llega cuando el lote ya avanzó. Sirve para calibrar, no para decidir en línea.",
+    fuente:"Laboratorio microbiología", sinDato:60,
+    tramos:[{lim:100,r:10,txt:"< 10² UFC/g"},{lim:1000,r:35,txt:"10²–10³"},{lim:10000,r:70,txt:"10³–10⁴"},{lim:null,r:95,txt:"≥ 10⁴"}] },
+
+  { id:"atp", nombre:"ATP por luminometría", unidad:"RLU", campo:"atp", dir:"asc",
+    clase:"Medición directa (< 1 h)", poder:95, pesoRec:25, activa:false, disponible:false,
+    desc:"Única medición directa de carga orgánica con respuesta operativa. Validada en pinturas por Mutschlechner et al. 2024 (R² = 0,99 frente a recuento en placa). Los umbrales RLU deben calibrarse con las formulaciones de Codelpa antes de confiar en ellos.",
+    fuente:"Luminómetro ATP (por adquirir)", sinDato:65,
+    tramos:[{lim:100,r:10,txt:"< 100 RLU"},{lim:500,r:35,txt:"100–499"},{lim:2000,r:65,txt:"500–1999"},{lim:null,r:90,txt:"≥ 2000"}] },
+
+  { id:"biofilm", nombre:"Biofilm en línea (sensor ALVIM)", unidad:"señal 0–100", campo:"biofilm", dir:"asc",
+    clase:"Medición directa continua", poder:90, pesoRec:15, activa:false, disponible:false,
+    desc:"Sensor electroquímico que detecta la formación de biofilm antes de que se desprenda al producto. Validado en agua industrial (Water Research, 2010).",
+    fuente:"Sensor en línea (por adquirir)", sinDato:60,
+    tramos:[{lim:20,r:10,txt:"< 20"},{lim:45,r:40,txt:"20–44"},{lim:70,r:70,txt:"45–69"},{lim:null,r:95,txt:"≥ 70"}] },
+
+  { id:"pig", nombre:"Días desde limpieza PIG de tuberías", unidad:"días", campo:"dias_pig", dir:"asc",
+    clase:"Proxy de reservorio", poder:60, pesoRec:15, activa:false, disponible:false,
+    desc:"El biofilm en piping es el reservorio que recontamina el estanque recién sanitizado. Caso Barbot Paints (Portugal): 99 % de reducción de contaminación tras instalar PIG.",
+    fuente:"Sistema PIG (por instalar)", sinDato:45,
+    tramos:[{lim:16,r:10,txt:"≤ 15 días"},{lim:31,r:40,txt:"16–30 días"},{lim:46,r:75,txt:"31–45 días"},{lim:null,r:100,txt:"> 45 días"}] },
+
+  { id:"agua", nombre:"Calidad microbiológica del agua de proceso", unidad:"UFC/mL", campo:"agua", dir:"asc",
+    clase:"Medición directa (matriz agua)", poder:70, pesoRec:10, activa:false, disponible:false,
+    desc:"El agua de proceso y de enjuague es la vía de entrada más frecuente. Aquí sí aplica citometría de flujo (TCC/ICC), que no sirve sobre matriz de pintura.",
+    fuente:"Muestreo de agua (plan por definir)", sinDato:55,
+    tramos:[{lim:10,r:10,txt:"< 10 UFC/mL"},{lim:100,r:35,txt:"10–99"},{lim:1000,r:70,txt:"100–999"},{lim:null,r:95,txt:"≥ 1000"}] },
+];
+
+/* ── Protocolo de acciones · catálogo con poder de protección ──
+   `poder` (0-100) mide cuánto reduce el riesgo real la acción en sí
+   misma — no la variable que toca. Es la contraparte del "poder
+   diagnóstico" de las variables: aquella mide cuánto REVELA una
+   medición, esta mide cuánto PROTEGE una intervención. El valor por
+   defecto vive aquí; `cfg.poderAcciones` permite que I+D lo ajuste
+   desde el panel. Solo ordena el protocolo y queda documentado — no
+   es un multiplicador adicional sobre el IRM. El IRM sigue cambiando
+   únicamente porque la acción deja alguna variable en un tramo de
+   menor riesgo (`afecta`), igual que los demás factores: así una
+   misma protección nunca se cuenta dos veces por dos caminos.
+   req = variable que debe estar activa para que la acción se ofrezca.
+   afecta = qué campos cambia al ejecutarse (fijo, no editable: es la
+   física del proceso, no una opinión). */
+const ACCIONES_CATALOGO = {
+  sanitizar: { t:"Sanitización CIP con PAA 300 ppm", tipo:"sanitizar", req:null, poder:95,
+    desc:"Lavado + desinfección química a fondo, reinicia el ciclo completo",
+    mecanismo:"Combina remoción física y biocida en concentración alta. Es la única acción que resetea el equipo por completo.",
+    afecta:{dias_det:0,dias_fab:0,dias_paa:0,dias_san:0} },
+  paa_nube: { t:"Nebulizar PAA 150 ppm en superficies", tipo:"paa", req:"paa", poder:85,
+    desc:"Nube de ácido peracético post-fabricación",
+    mecanismo:"Biocida activo: reduce 10⁶ bacterias en 1 minuto (validado en literatura). No es neutralizado por catalasa, a diferencia del H₂O₂.",
+    afecta:{dias_paa:0} },
+  pig: { t:"Limpieza PIG de las tuberías asociadas", tipo:"pig", req:"pig", poder:75,
+    desc:"Elimina el reservorio de biofilm en piping",
+    mecanismo:"No trata el estanque directamente, pero sin esto el equipo se recontamina desde la tubería aunque quede impecable. Caso Barbot Paints: 99% de reducción.",
+    afecta:{dias_pig:0} },
+  biocida: { t:"Dosificar biocida de mantenimiento", tipo:"biocida", req:null, poder:45,
+    desc:"Dosis preventiva entre lotes",
+    mecanismo:"Concentración menor que una sanitización completa: frena el crecimiento, no lo revierte del todo.",
+    afecta:{dias_paa:8} },
+  lavado: { t:"Enjuague del estanque al terminar fabricación", tipo:"lavado", req:null, poder:30,
+    desc:"Retira el remanente antes de que se seque en las paredes",
+    mecanismo:"Remueve el sustrato nutriente para las bacterias, pero no es un biocida: no las elimina.",
+    afecta:{dias_det:0,dias_fab:0} },
+  detener: { t:"Detener el uso del equipo", tipo:"detener", req:null, poder:25,
+    desc:"Bloquea el equipo hasta nueva evaluación",
+    mecanismo:"Evita que seguir fabricando extienda el problema a más lotes, pero no ataca la causa: no cambia el estado del equipo.",
+    afecta:{} },
+  programar: { t:"Programar sanitización dentro de 48 h", tipo:"programar", req:null, poder:15,
+    desc:"Agenda la sanitización completa",
+    mecanismo:"Es un compromiso a futuro, no una intervención: el estado real del equipo no cambia hasta que la sanitización se ejecute.",
+    afecta:{} },
+  medir_atp: { t:"Medir ATP", tipo:"medir_atp", req:"atp", poder:0,
+    desc:"Ingresa el valor RLU actual para recalcular",
+    mecanismo:"Es una medición, no una intervención: no reduce el riesgo, solo lo revela con más precisión.",
+    afecta:{} },
+  medir_ph: { t:"Verificar pH del remanente", tipo:"medir_ph", req:"ph", poder:0,
+    desc:"Ingresa el pH medido en el estanque",
+    mecanismo:"Es una medición, no una intervención: no reduce el riesgo, solo lo revela con más precisión.",
+    afecta:{} },
+  bitacora: { t:"Registrar en bitácora", tipo:"bitacora", req:null, poder:0,
+    desc:"Deja constancia del estado actual",
+    mecanismo:"Registro administrativo: no cambia el estado del equipo.",
+    afecta:{} },
+};
+const ACCIONES_POR_NIVEL={
+  critico:["sanitizar","paa_nube","pig","detener","medir_atp","medir_ph"],
+  alto:["paa_nube","lavado","programar","medir_atp","medir_ph"],
+  medio:["biocida","lavado","medir_ph","medir_atp","bitacora"],
+  bajo:[],
+};
+const ACCIONES_POR_TIPO={};
+Object.values(ACCIONES_CATALOGO).forEach(a=>{ ACCIONES_POR_TIPO[a.tipo]=a; });
+
+const CONFIG_DEFAULT = {
+  variables: VARIABLES_BASE.map(v=>({...v, peso:v.pesoRec, tramos:v.tramos.map(t=>({...t}))})),
+  poderAcciones: Object.fromEntries(Object.entries(ACCIONES_CATALOGO).map(([id,a])=>[id,a.poder])),
+  /* ── Aceleración ambiental ────────────────────────────────
+     Temperatura y humedad son UN dato de planta, no de equipo — todos
+     los equipos respiran el mismo aire. Igual que antes: no ponderan
+     por sí solas, aceleran el reloj de las variables tiempoDependiente
+     (det, fab, paa, san). factor total = factor(temp) × factor(humedad),
+     así ambas quedan en la misma ruta de cálculo, sin abrir un segundo
+     camino que vuelva a sumar el mismo riesgo por otro lado.
+     Bandas de humedad calibradas sobre el umbral de condensación/
+     crecimiento microbiano que usan EPA e ASHRAE (>60% HR sostenida). */
+  factorAmbiental:{ activo:true,
+    temperatura:[
+      {max:15,  factor:0.5,  txt:"< 15 °C"},
+      {max:20,  factor:0.75, txt:"15–19 °C"},
+      {max:25,  factor:1.0,  txt:"20–24 °C · referencia"},
+      {max:30,  factor:1.5,  txt:"25–29 °C"},
+      {max:null,factor:2.0,  txt:"≥ 30 °C"},
+    ],
+    humedad:[
+      {max:40,  factor:0.9,  txt:"< 40 % HR"},
+      {max:60,  factor:1.0,  txt:"40–60 % HR · referencia"},
+      {max:70,  factor:1.3,  txt:"60–69 % HR"},
+      {max:null,factor:1.7,  txt:"≥ 70 % HR"},
+    ],
+  },
+  cortes:{ medio:40, alto:65, critico:80 },
+  importanciaAreas:{},   // { "DISPERSORAS": {nivel:"alta", motivo:"..."} } · área sin entrada = "media"
+  piloto:{ activo:false, areas:[], equipos:[] },
+  hashClave:"e3e27656722edf35",
+};
+const AMBIENTE_DEFAULT = { temp:22, humedad:55, actualizado:null, por:null };
+
+/* ── Modo piloto ───────────────────────────────────────────
+   Con piloto.activo=false (por defecto), todos los equipos se
+   protegen normalmente — comportamiento idéntico al de siempre.
+   Con piloto.activo=true, solo los equipos de piloto.areas o
+   piloto.equipos quedan con el algoritmo corriendo; el resto se
+   muestra "congelado" (nivel piloto_fuera): sin IRM, sin protocolo,
+   con una etiqueta explícita para que nadie lo confunda con "seguro" —
+   es "no lo estamos midiendo todavía", no "está bien". */
+function enPiloto(eq,cfg){
+  const p=cfg.piloto;
+  if(!p||!p.activo) return true;
+  return (p.areas||[]).includes(eq.area) || (p.equipos||[]).includes(eq.id);
+}
+
+/* ── Motor de cálculo ─────────────────────────────────────── */
+function evalVar(v, val){
+  if(val===null||val===undefined||val==="") return {r:v.sinDato, txt:"Sin dato", sinDato:true};
+  const n=Number(val);
+  if(Number.isNaN(n)) return {r:v.sinDato, txt:"Sin dato", sinDato:true};
+  for(let i=0;i<v.tramos.length;i++){
+    const t=v.tramos[i];
+    if(t.lim===null||t.lim===undefined) return {r:t.r, txt:t.txt, sinDato:false};
+    if(v.dir==="desc"){ if(n>=t.lim) return {r:t.r, txt:t.txt, sinDato:false}; }
+    else { if(n<t.lim) return {r:t.r, txt:t.txt, sinDato:false}; }
+  }
+  const u=v.tramos[v.tramos.length-1];
+  return {r:u.r, txt:u.txt, sinDato:false};
+}
+
+function calcIRM(eq, cfg, ambiente){
+  if(eq.notas==="INHABILITADO") return {irm:0, nivel:"inhabilitado", detalle:[], base:0, factorT:1};
+  if(!enPiloto(eq,cfg)) return {irm:null, nivel:"piloto_fuera", detalle:[], base:0, factorT:1};
+  const act=cfg.variables.filter(v=>v.activa);
+  const sum=act.reduce((s,v)=>s+(Number(v.peso)||0),0);
+  if(!act.length||sum<=0) return {irm:null, nivel:"sinmodelo", detalle:[], base:0, factorT:1};
+  const {factorTemp,factorHum,factorTotal}=factorAmbientalDe(ambiente,cfg);
+  let base=0; const detalle=[];
+  act.forEach(v=>{
+    const raw=eq[v.campo];
+    const hayDato=raw!==null&&raw!==undefined&&raw!==""&&!Number.isNaN(Number(raw));
+    const acelera=!!(v.tiempoDependiente&&cfg.factorAmbiental?.activo&&hayDato);
+    const valEval=acelera?Number(raw)*factorTotal:raw;
+    const ev=evalVar(v, valEval);
+    const pesoEf=(Number(v.peso)||0)/sum;
+    base+=pesoEf*ev.r;
+    detalle.push({id:v.id, nombre:v.nombre, unidad:v.unidad, r:ev.r, txt:ev.txt,
+      sinDato:ev.sinDato, pesoEf:Math.round(pesoEf*1000)/10, valor:raw, clase:v.clase,
+      acelerado:acelera, factorT:acelera?factorTotal:1, factorTemp, factorHum,
+      valorEfectivo:acelera?Math.round(valEval*10)/10:null});
+  });
+  const irm=Math.max(0,Math.min(100,Math.round(base)));
+  const c=cortesDeArea(eq.area,cfg);
+  const nivel = irm>=c.critico?"critico" : irm>=c.alto?"alto" : irm>=c.medio?"medio" : "bajo";
+  return {irm, nivel, detalle, base:Math.round(base*10)/10, factorT:factorTotal, factorTemp, factorHum, cortesArea:c};
+}
+
+/* ── Aceleración ambiental: temperatura × humedad (dato único de planta) ── */
+function bandaDe(valor,bandas){
+  const n=Number(valor);
+  if(valor===null||valor===undefined||Number.isNaN(n)) return 1;
+  for(const b of bandas){ if(b.max===null||b.max===undefined||n<b.max) return Number(b.factor)||1; }
+  return Number(bandas[bandas.length-1]?.factor)||1;
+}
+function factorAmbientalDe(ambiente,cfg){
+  const fa=cfg.factorAmbiental;
+  if(!fa||!fa.activo||!ambiente) return {factorTemp:1,factorHum:1,factorTotal:1};
+  const factorTemp=bandaDe(ambiente.temp,fa.temperatura);
+  const factorHum=bandaDe(ambiente.humedad,fa.humedad);
+  return {factorTemp,factorHum,factorTotal:Math.round(factorTemp*factorHum*100)/100};
+}
+
+/* ── Modelo de confianza (nivel de seguridad del algoritmo) ── */
+const NIVEL_CONF=[
+  {min:85, label:"PREDICTIVO PLENO", c:"#0F8A4C", d:"El modelo anticipa la contaminación con medición directa y continua."},
+  {min:70, label:"PREDICTIVO",       c:"#16A34A", d:"Hay medición directa suficiente para decidir antes de que el lote se comprometa."},
+  {min:55, label:"SEMI-PREDICTIVO",  c:"#D97706", d:"Predice tendencias, pero depende de proxies indirectos para el diagnóstico final."},
+  {min:40, label:"PREVENTIVO",       c:"#EA580C", d:"Ordena y prioriza el trabajo, sin capacidad real de anticipación."},
+  {min:0,  label:"REACTIVO",         c:"#DC2626", d:"Equivale al método por calendario que este proyecto vino a reemplazar."},
+];
+function nivelConf(p){ return NIVEL_CONF.find(n=>p>=n.min)||NIVEL_CONF[NIVEL_CONF.length-1]; }
+
+function calcConfianza(cfg){
+  const todas=cfg.variables;
+  const denom=todas.reduce((s,v)=>s+(Number(v.pesoRec)||0)*v.poder,0);
+  const act=todas.filter(v=>v.activa);
+  const cob=act.reduce((s,v)=>s+(Number(v.pesoRec)||0)*v.poder,0);
+  const cobertura= denom>0 ? (cob/denom)*100 : 0;
+  // Alineación: qué tan cerca están los pesos asignados de la proporción recomendada
+  const sumRecAct=act.reduce((s,v)=>s+(Number(v.pesoRec)||0),0);
+  const sumAct=act.reduce((s,v)=>s+(Number(v.peso)||0),0);
+  let desv=0;
+  if(sumRecAct>0&&sumAct>0) act.forEach(v=>{
+    desv+=Math.abs((Number(v.peso)/sumAct)-(Number(v.pesoRec)/sumRecAct));
+  });
+  const alineacion=Math.max(0,1-desv/2);               // 1 = pesos recomendados
+  const confianza=Math.round(cobertura*(0.90+0.10*alineacion));
+  const perdidas=todas.filter(v=>!v.activa)
+    .map(v=>({id:v.id, nombre:v.nombre, pts:Math.round(((Number(v.pesoRec)||0)*v.poder/denom)*100)}))
+    .sort((a,b)=>b.pts-a.pts);
+  return {confianza:Math.max(0,Math.min(100,confianza)),
+          cobertura:Math.round(cobertura),
+          alineacion:Math.round(alineacion*100),
+          perdidas, nivel:nivelConf(confianza)};
+}
+
+/* ── Datos derivados por equipo ───────────────────────────── */
+const REF_DATA = new Date(2025,6,10);        // 10-jul-2025 · fecha de corte del set de datos
+function diasDesde(s){
+  if(!s||s==="—") return null;
+  const p=String(s).split("/"); if(p.length!==3) return null;
+  const f=new Date(Number(p[2]),Number(p[1])-1,Number(p[0]));
+  if(Number.isNaN(f.getTime())) return null;
+  return Math.max(0,Math.round((REF_DATA-f)/86400000));
+}
+function derivar(eq){
+  const atp=eq.atp;
+  return {
+    ...eq,
+    dias_paa: eq.dias_h2o2,
+    dias_fab: eq.dias_det==null?null:eq.dias_det+(eq.id%4),
+    dias_san: diasDesde(eq.ultima_san),
+    ph: atp==null?null:Math.round((9.25-(Math.min(atp,3000)/3000)*2.1)*10)/10,
+    hist: atp==null?0:(atp>=2000?2:atp>=500?1:0),
+    placa:null, biofilm:null, agua:null,
+  };
+}
+function componer(base, ov, cfg, ambiente){
+  const pre={...base,...ov};
+  const der=derivar(pre);
+  const merged={...der,...ov};
+  return {...merged, ...calcIRM(merged,cfg,ambiente)};
+}
+
+/* ── Clave de acceso (ofuscación, no criptografía) ────────── */
+function hashClave(s){
+  const salt="shield::codelpa::irm";
+  const str=salt+String(s)+salt;
+  let h1=0x811c9dc5, h2=0x01000193;
+  for(let i=0;i<str.length;i++){
+    const c=str.charCodeAt(i);
+    h1=Math.imul(h1^c,16777619)>>>0;
+    h2=(Math.imul(h2+c*(i+7),2246822519)>>>0);
+    h2=(h2^(h2>>>13))>>>0;
+  }
+  return (h1>>>0).toString(16).padStart(8,"0")+(h2>>>0).toString(16).padStart(8,"0");
+}
+const LS_KEY="shield_cfg_irm_v6";
+function leerCfg(){
+  try{ const r=localStorage.getItem(LS_KEY); if(!r) return null;
+    const p=JSON.parse(r);
+    if(!p||!Array.isArray(p.variables)) return null;
+    // fusiona con el catálogo para tolerar versiones antiguas
+    // (ids retiradas del modelo en versiones previas: se descartan si aparecen en una config vieja)
+    const IDS_RETIRADAS=new Set(["temp","vuln","expo"]);
+    const mapa={}; p.variables.forEach(v=>{ if(!IDS_RETIRADAS.has(v.id)) mapa[v.id]=v; });
+    const vars=CONFIG_DEFAULT.variables.map(base=>mapa[base.id]?{...base,...mapa[base.id]}:base);
+    const extra=p.variables.filter(v=>!IDS_RETIRADAS.has(v.id)&&!CONFIG_DEFAULT.variables.some(b=>b.id===v.id));
+    const poderAcciones={...CONFIG_DEFAULT.poderAcciones,...(p.poderAcciones||{})};
+    const faOrigen=p.factorAmbiental||p.factorTermico;   // tolera el nombre anterior (factorTermico)
+    const factorAmbiental=faOrigen
+      ?{...CONFIG_DEFAULT.factorAmbiental,...faOrigen,
+        temperatura:faOrigen.temperatura||faOrigen.bandas||CONFIG_DEFAULT.factorAmbiental.temperatura,
+        humedad:faOrigen.humedad||CONFIG_DEFAULT.factorAmbiental.humedad}
+      :CONFIG_DEFAULT.factorAmbiental;
+    const importanciaAreas={...(p.importanciaAreas||{})};
+    const piloto={...CONFIG_DEFAULT.piloto,...(p.piloto||{})};
+    return {...CONFIG_DEFAULT, ...p, variables:[...vars,...extra], poderAcciones, factorAmbiental, importanciaAreas, piloto};
+  }catch(e){ return null; }
+}
+function guardarCfg(c){ try{ localStorage.setItem(LS_KEY,JSON.stringify(c)); return true; }catch(e){ return false; } }
+
+const LS_KEY_AMB="shield_ambiente_v7";
+function leerAmbiente(){
+  try{ const r=localStorage.getItem(LS_KEY_AMB); if(!r) return null;
+    const p=JSON.parse(r); if(typeof p?.temp!=="number") return null;
+    return {...AMBIENTE_DEFAULT, ...p};
+  }catch(e){ return null; }
+}
+function guardarAmbiente(a){ try{ localStorage.setItem(LS_KEY_AMB,JSON.stringify(a)); return true; }catch(e){ return false; } }
+
+function accionesDe(nivel,cfg){
+  const activas=new Set(cfg.variables.filter(v=>v.activa).map(v=>v.id));
+  const ids=ACCIONES_POR_NIVEL[nivel]||[];
+  if(ids.length===0) return [{t:"Sin acciones requeridas",tipo:"normal",req:null,poder:0,
+    desc:"El equipo está en rango seguro",mecanismo:"",afecta:{}}];
+  return ids.map(id=>{
+    const base=ACCIONES_CATALOGO[id];
+    const poder=cfg.poderAcciones?.[id]??base.poder;
+    return {...base,id,poder};
+  })
+  .filter(a=>!a.req||activas.has(a.req))
+  // Ordena por poder de protección: el operador ve primero lo que más reduce el
+  // riesgo, y las mediciones (poder 0) quedan al final. Es lo que hace que el
+  // número del panel de configuración sirva para algo operativo y no decorativo.
+  .sort((a,b)=>b.poder-a.poder);
+}
+
+/* ═══════════════════════════════════════════════════════════
+   COMPONENTES BASE
+   ═══════════════════════════════════════════════════════════ */
+function ShieldLogo({size=64,color=CP.blue,fill="none",stroke=5}){
+  return(
+    <svg width={size} height={size*1.12} viewBox="0 0 100 112" style={{display:"block"}} aria-hidden="true">
+      <path d="M50 4 L92 19 V52 C92 82 50 108 50 108 C50 108 8 82 8 52 V19 Z"
+        fill={fill} stroke={color} strokeWidth={stroke} strokeLinejoin="round"/>
+    </svg>
+  );
+}
+function Engranaje({size=26,color="currentColor"}){
+  return(
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color}
+      strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <circle cx="12" cy="12" r="3.1"/>
+      <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.6 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.6a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9v0a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+    </svg>
+  );
+}
+function LogoCP({size=40}){
+  return <img src={LOGO_CODELPA} alt="Codelpa" style={{height:size,width:"auto",display:"block",flexShrink:0}}/>;
+}
+function Punto({c,size=8,glow=false}){
+  return <span style={{width:size,height:size,borderRadius:"50%",background:c,display:"inline-block",
+    flexShrink:0,boxShadow:glow?`0 0 0 3px ${c}22`:"none"}}/>;
+}
+function Semaforo({nivel,size="md"}){
+  const sz=size==="sm"?9:size==="lg"?17:12;
+  const gap=size==="sm"?4:size==="lg"?6:5;
+  return(
+    <div style={{display:"flex",flexDirection:"column",alignItems:"center",gap}} aria-hidden="true">
+      {NIVELES_ORD.map(n=>{
+        const on=n===nivel; const c=NC[n]?.bg||"#94A3B8";
+        return <div key={n} style={{width:sz,height:sz,borderRadius:"50%",
+          background:on?c:"#DFE6EF",boxShadow:on?`0 0 0 3px ${c}22`:"none",transition:"background .25s"}}/>;
+      })}
+    </div>
+  );
+}
+function EscalaIRM({compacto=false}){
+  const items=[{k:"critico"},{k:"alto"},{k:"medio"},{k:"bajo"}];
+  return(
+    <div style={{display:"flex",gap:compacto?8:10,alignItems:"center",flexWrap:"wrap"}}>
+      {!compacto&&<span style={{fontSize:9,color:CP.mute,fontWeight:700,letterSpacing:1.2}}>ESCALA IRM</span>}
+      {items.map(i=>{const c=NC[i.k];return(
+        <span key={i.k} style={{display:"inline-flex",alignItems:"center",gap:5}}>
+          <Punto c={c.bg} size={7}/>
+          <span style={{fontSize:10,fontWeight:700,color:c.bg}}>{c.tag}</span>
+          <span style={{fontSize:10,color:CP.mute}}>{c.label}</span>
+        </span>
+      );})}
+    </div>
+  );
+}
+function Topbar({titulo,sub,onBack,backLabel="Volver",derecha=null}){
+  return(
+    <div style={{background:CP.navy,padding:"11px 14px",display:"flex",alignItems:"center",gap:12,
+      position:"sticky",top:0,zIndex:20,boxShadow:"0 1px 0 rgba(255,255,255,.06)"}}>
+      {onBack&&<button onClick={onBack} style={{background:"rgba(255,255,255,.09)",border:"1px solid rgba(255,255,255,.16)",
+        color:"#D6E2EE",borderRadius:8,padding:"6px 12px",cursor:"pointer",fontSize:12,fontWeight:600,flexShrink:0}}>‹ {backLabel}</button>}
+      <div style={{flex:1,minWidth:0}}>
+        <div style={{fontSize:15,fontWeight:700,color:"#fff",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{titulo}</div>
+        {sub&&<div style={{fontSize:10.5,color:"#9CB6CE",marginTop:1}}>{sub}</div>}
+      </div>
+      {derecha}
+    </div>
+  );
+}
+function Conexion({estado}){
+  // estado: "local" | "conectado" | "reintentando"
+  const map={
+    local:{c:"#94A3B8",l:"Modo local · por navegador"},
+    conectado:{c:"#16A34A",l:"Sincronizado con la planta"},
+    reintentando:{c:"#D97706",l:"Reconectando…"},
+  };
+  const m=map[estado]||map.local;
+  return(
+    <span title={m.l} style={{display:"inline-flex",alignItems:"center",gap:6,fontSize:10,color:CP.mute,fontWeight:600}}>
+      <Punto c={m.c} size={7} glow={estado==="conectado"}/>{m.l}
+    </span>
+  );
+}
+function badgePoder(p){
+  if(p<=0) return {label:"MEDICIÓN",bg:"#F1F5F9",fg:"#5A6E85"};
+  if(p>=80) return {label:`PROTECCIÓN ALTA · ${p}`,bg:"#E9F9EE",fg:"#116B37"};
+  if(p>=40) return {label:`PROTECCIÓN MEDIA · ${p}`,bg:"#FEF4E0",fg:"#8A4B06"};
+  return {label:`PROTECCIÓN BAJA · ${p}`,bg:"#F1F5F9",fg:"#5A6E85"};
+}
+function AmbienteChip({ambiente,cfg,onClick,compacto=false}){
+  const f=factorAmbientalDe(ambiente,cfg);
+  const alto=f.factorTotal>=1.5, medio=f.factorTotal>=1.1&&f.factorTotal<1.5;
+  const c=alto?"#DC2626":medio?"#D97706":"#16A34A";
+  const editable=typeof onClick==="function";
+  return(
+    <button onClick={editable?onClick:undefined} disabled={!editable}
+      title={editable?"Actualizar lectura ambiental":"Lectura ambiental de planta (se actualiza desde el panel general)"}
+      style={{display:"inline-flex",alignItems:"center",gap:7,background:"#fff",border:`1px solid ${CP.line}`,
+        borderRadius:16,padding:compacto?"5px 11px":"7px 13px",cursor:editable?"pointer":"default",font:"inherit"}}>
+      <span>🌡️</span>
+      <span style={{fontSize:compacto?11:12,fontWeight:700,color:CP.navy}}>{ambiente?.temp??"—"}°C</span>
+      <span style={{fontSize:compacto?11:12,color:CP.mute}}>·</span>
+      <span style={{fontSize:compacto?11:12,fontWeight:700,color:CP.navy}}>{ambiente?.humedad??"—"}% HR</span>
+      {cfg.factorAmbiental?.activo&&<span style={{fontSize:compacto?9.5:10,fontWeight:700,color:c,
+        background:c+"18",borderRadius:8,padding:"1px 7px",marginLeft:2}}>×{f.factorTotal.toFixed(2)}</span>}
+    </button>
+  );
+}
+function InfoPlegable({titulo,children}){
+  const [abierto,setAbierto]=useState(false);
+  return(
+    <div style={{border:`1px solid ${CP.blue}33`,borderRadius:10,background:CP.blueSoft,overflow:"hidden"}}>
+      <button onClick={()=>setAbierto(a=>!a)} style={{width:"100%",display:"flex",alignItems:"center",gap:8,
+        padding:"8px 12px",background:"none",border:"none",cursor:"pointer",textAlign:"left"}}>
+        <span style={{fontSize:12}}>ℹ️</span>
+        <span style={{flex:1,fontSize:11,fontWeight:700,color:"#125A93"}}>{titulo}</span>
+        <span style={{fontSize:10,color:"#125A93",fontWeight:700}}>{abierto?"Ocultar ▾":"Ver ▸"}</span>
+      </button>
+      {abierto&&<div style={{padding:"0 12px 10px",fontSize:11,color:"#125A93",lineHeight:1.55}}>{children}</div>}
+    </div>
+  );
+}
+function BarraEscala({v,c,alto=6}){
+  return(
+    <div style={{height:alto,background:"#EDF1F6",borderRadius:alto/2,overflow:"hidden"}}>
+      <div style={{height:"100%",width:`${Math.max(0,Math.min(100,v))}%`,background:c,borderRadius:alto/2,transition:"width .45s ease"}}/>
+    </div>
+  );
+}
+
+/* ── Siluetas de equipo ───────────────────────────────────── */
+const FIG_AREA={"DISPERSORAS":"dispersor","ESTANQUES":"estanque","TEXTURAS":"tacho","AMASADORAS":"tacho",
+  "MADERAS":"estanque","ENVASADO":"envase","ACUMULADORES":"estanque","COLORES":"estanque",
+  "COLORES MADERA":"estanque","BASES COLORES":"estanque","MATERIAS PRIMAS":"estanque","PASTA MURO":"tacho"};
+function figuraDe(eq){
+  const c=(eq.codigo||"").toLowerCase();
+  if(c.includes("piping")) return "piping";
+  if(c.includes("filtro")) return "filtro";
+  if(c.includes("bomba")) return "bomba";
+  if(c.includes("terminales")||c.includes("envas")) return "envase";
+  if(c.includes("tacho")) return "tacho";
+  return FIG_AREA[eq.area]||"estanque";
+}
+function EquipoSVG({fig,fill,stroke,valor,size=68}){
+  const W=80,H=92,sw=2.4;
+  const T=(x,y,s=21)=>(<text x={x} y={y} textAnchor="middle" dominantBaseline="middle" fontSize={s}
+    fontWeight="800" fill="#FFFFFF" style={{letterSpacing:-.5}}>{valor}</text>);
+  let body=null;
+  if(fig==="estanque"||fig==="dispersor"){
+    body=(<g>
+      {fig==="dispersor"&&<g><rect x="30" y="0" width="20" height="12" rx="3" fill={stroke}/><rect x="37" y="12" width="6" height="9" fill={stroke}/></g>}
+      <path d="M18 48 L15 84 M62 48 L65 84" stroke={stroke} strokeWidth="3.2" strokeLinecap="round" fill="none"/>
+      <rect x="36" y="66" width="8" height="7" rx="1.5" fill={stroke}/>
+      <path d="M12 21 L12 52 L40 68 L68 52 L68 21 Z" fill={fill} stroke={stroke} strokeWidth={sw} strokeLinejoin="round"/>
+      <ellipse cx="40" cy="21" rx="28" ry="8" fill={fill} stroke={stroke} strokeWidth={sw}/>
+      <ellipse cx="40" cy="21" rx="17" ry="4" fill="rgba(255,255,255,.26)"/>
+      {T(40,45)}
+    </g>);
+  } else if(fig==="tacho"){
+    body=(<g>
+      <rect x="35" y="0" width="10" height="10" rx="2" fill={stroke}/><rect x="38" y="10" width="4" height="14" fill={stroke}/>
+      <path d="M14 24 L19 68 L61 68 L66 24 Z" fill={fill} stroke={stroke} strokeWidth={sw} strokeLinejoin="round"/>
+      <ellipse cx="40" cy="24" rx="26" ry="7.5" fill="rgba(255,255,255,.28)" stroke={stroke} strokeWidth={sw}/>
+      <path d="M24 68 L21 82 M56 68 L59 82" stroke={stroke} strokeWidth="3.2" strokeLinecap="round" fill="none"/>
+      <rect x="15" y="82" width="50" height="5" rx="2.5" fill={stroke}/>
+      {T(40,48)}
+    </g>);
+  } else if(fig==="envase"){
+    body=(<g>
+      <path d="M20 20 L20 62 L60 62 L60 20 Z" fill={fill} stroke={stroke} strokeWidth={sw} strokeLinejoin="round"/>
+      <ellipse cx="40" cy="20" rx="20" ry="6" fill={fill} stroke={stroke} strokeWidth={sw}/>
+      <path d="M20 30 H60 M20 54 H60" stroke="rgba(255,255,255,.42)" strokeWidth="2.4"/>
+      <rect x="6" y="70" width="68" height="7" rx="3.5" fill={stroke}/>
+      <circle cx="16" cy="83" r="4" fill={stroke} opacity=".55"/><circle cx="40" cy="83" r="4" fill={stroke} opacity=".55"/><circle cx="64" cy="83" r="4" fill={stroke} opacity=".55"/>
+      {T(40,43,19)}
+    </g>);
+  } else if(fig==="filtro"){
+    body=(<g>
+      <path d="M26 16 L26 66 L54 66 L54 16 Z" fill={fill} stroke={stroke} strokeWidth={sw} strokeLinejoin="round"/>
+      <ellipse cx="40" cy="16" rx="14" ry="5" fill={fill} stroke={stroke} strokeWidth={sw}/>
+      <path d="M12 30 H26 M54 52 H68" stroke={stroke} strokeWidth="7" strokeLinecap="round"/>
+      <path d="M32 66 L32 80 M48 66 L48 80" stroke={stroke} strokeWidth="3.2" strokeLinecap="round"/>
+      <rect x="24" y="80" width="32" height="5" rx="2.5" fill={stroke}/>
+      {T(40,42,17)}
+    </g>);
+  } else if(fig==="bomba"){
+    body=(<g>
+      <path d="M40 44 L40 14 L62 14" fill="none" stroke={stroke} strokeWidth="8" strokeLinecap="round"/>
+      <path d="M40 44 L74 44" fill="none" stroke={stroke} strokeWidth="8" strokeLinecap="round"/>
+      <circle cx="40" cy="44" r="23" fill={fill} stroke={stroke} strokeWidth={sw}/>
+      <rect x="18" y="70" width="44" height="7" rx="2" fill={stroke}/>
+      {T(40,44,19)}
+    </g>);
+  } else {
+    body=(<g>
+      <path d="M2 44 H78" fill="none" stroke={stroke} strokeWidth="16"/>
+      <path d="M2 44 H78" fill="none" stroke={fill} strokeWidth="10"/>
+      <rect x="6" y="30" width="5" height="28" rx="1.5" fill={stroke}/><rect x="69" y="30" width="5" height="28" rx="1.5" fill={stroke}/>
+      <rect x="22" y="24" width="36" height="40" rx="7" fill={fill} stroke={stroke} strokeWidth={sw}/>
+      {T(40,44,19)}
+    </g>);
+  }
+  return <svg width={size} height={size*(H/W)} viewBox={`0 0 ${W} ${H}`} style={{display:"block",margin:"0 auto"}}>{body}</svg>;
+}
+function EquipoTile({eq,onClick}){
+  const c=NC[eq.nivel]||NC.inhabilitado;
+  const [hov,setHov]=useState(false);
+  const urg=eq.nivel==="critico"||eq.nivel==="alto";
+  const inhab=eq.nivel==="inhabilitado";
+  const fueraPiloto=eq.nivel==="piloto_fuera";
+  const sinModelo=eq.irm===null;
+  const simbolo=inhab?"—":fueraPiloto?"❄":"?";
+  return(
+    <div role="button" tabIndex={0} onClick={onClick}
+      onKeyDown={e=>{if(e.key==="Enter"||e.key===" "){e.preventDefault();onClick();}}}
+      onMouseEnter={()=>setHov(true)} onMouseLeave={()=>setHov(false)}
+      title={`${eq.codigo} · ${eq.area} · ${eq.responsable}`}
+      style={{position:"relative",background:"#fff",border:`1px solid ${hov?c.bg:urg?c.bg+"55":CP.line}`,
+        borderTop:`3px solid ${urg?c.bg:"transparent"}`,borderRadius:14,padding:"11px 6px 9px",cursor:"pointer",
+        textAlign:"center",transition:"transform .12s, box-shadow .12s, border-color .12s",
+        transform:hov?"translateY(-2px)":"none",opacity:fueraPiloto?.7:1,
+        boxShadow:hov?"0 8px 20px rgba(13,36,64,.13)":"0 1px 2px rgba(13,36,64,.05)"}}>
+      <EquipoSVG fig={figuraDe(eq)} fill={inhab||sinModelo?"#CBD5E1":c.bg} stroke={inhab||sinModelo?"#64748B":c.txt}
+        valor={sinModelo?simbolo:eq.irm} size={66}/>
+      <div style={{fontSize:10.5,fontWeight:700,color:CP.navy,marginTop:5,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{eq.codigo}</div>
+      <div style={{fontSize:8.5,color:CP.mute,marginTop:1,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{eq.area}</div>
+    </div>
+  );
+}
+function EquipoCard({eq,onClick}){
+  const c=NC[eq.nivel]||NC.inhabilitado;
+  const [hov,setHov]=useState(false);
+  const inhab=eq.nivel==="inhabilitado";
+  const fueraPiloto=eq.nivel==="piloto_fuera";
+  const simbolo=inhab?"—":fueraPiloto?"❄":"?";
+  return(
+    <div onClick={onClick} onMouseEnter={()=>setHov(true)} onMouseLeave={()=>setHov(false)}
+      style={{display:"flex",alignItems:"center",background:"#fff",border:`1px solid ${hov?c.bg+"66":CP.line}`,
+        borderRadius:12,overflow:"hidden",cursor:"pointer",transition:"box-shadow .12s, border-color .12s",
+        opacity:fueraPiloto?.7:1,boxShadow:hov?"0 6px 16px rgba(13,36,64,.1)":"0 1px 2px rgba(13,36,64,.04)"}}>
+      <div style={{width:4,alignSelf:"stretch",background:c.bg,flexShrink:0}}/>
+      <div style={{padding:"8px 10px",flexShrink:0}}><Semaforo nivel={eq.nivel} size="sm"/></div>
+      <div style={{flex:1,padding:"10px 4px",minWidth:0}}>
+        <div style={{fontSize:13,fontWeight:700,color:CP.navy,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{eq.codigo}</div>
+        <div style={{fontSize:10.5,color:CP.mute,marginTop:2}}>{eq.area} · {eq.responsable}</div>
+      </div>
+      <div style={{padding:"10px 14px",textAlign:"center",flexShrink:0}}>
+        <div style={{fontSize:24,fontWeight:800,color:c.bg,lineHeight:1}}>{eq.irm===null?simbolo:eq.irm}</div>
+        <div style={{fontSize:8.5,color:c.txt,fontWeight:700,letterSpacing:.6,marginTop:2}}>{c.label}</div>
+      </div>
+      <div style={{paddingRight:10,color:"#C3CEDB",fontSize:15}}>›</div>
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════
+   CONFIGURACIÓN DEL ALGORITMO
+   ═══════════════════════════════════════════════════════════ */
+function BarraConfianza({cfg,compacto=false}){
+  const {confianza,cobertura,alineacion,perdidas,nivel}=useMemo(()=>calcConfianza(cfg),[cfg]);
+  const zonas=[{w:40,l:"REACTIVO",c:"#DC2626"},{w:15,l:"PREVENTIVO",c:"#EA580C"},
+    {w:15,l:"SEMI-PRED.",c:"#D97706"},{w:15,l:"PREDICTIVO",c:"#16A34A"},{w:15,l:"PLENO",c:"#0F8A4C"}];
+  if(compacto) return(
+    <div style={{display:"inline-flex",alignItems:"center",gap:8,background:"#fff",border:`1px solid ${CP.line}`,
+      borderRadius:20,padding:"5px 12px 5px 8px"}}>
+      <Punto c={nivel.c} size={8} glow/>
+      <span style={{fontSize:11,fontWeight:800,color:nivel.c}}>{confianza}%</span>
+      <span style={{fontSize:10.5,color:CP.mute}}>{nivel.label}</span>
+    </div>
+  );
+  return(
+    <div style={{background:"#fff",border:`1px solid ${CP.line}`,borderRadius:16,padding:"16px 18px 14px"}}>
+      <div style={{display:"flex",alignItems:"flex-end",justifyContent:"space-between",gap:12,flexWrap:"wrap",marginBottom:14}}>
+        <div>
+          <div style={{fontSize:9.5,color:CP.mute,fontWeight:700,letterSpacing:1.4}}>NIVEL DE SEGURIDAD DEL MODELO</div>
+          <div style={{display:"flex",alignItems:"baseline",gap:9,marginTop:4}}>
+            <span style={{fontSize:38,fontWeight:800,color:nivel.c,lineHeight:1,letterSpacing:-1.5}}>{confianza}</span>
+            <span style={{fontSize:16,fontWeight:700,color:nivel.c}}>%</span>
+            <span style={{fontSize:13,fontWeight:800,color:nivel.c,letterSpacing:.5}}>{nivel.label}</span>
+          </div>
+          <div style={{fontSize:11.5,color:"#5A6E85",marginTop:5,maxWidth:420,lineHeight:1.5}}>{nivel.d}</div>
+        </div>
+        <div style={{textAlign:"right"}}>
+          <div style={{fontSize:10,color:CP.mute}}>Cobertura de variables <b style={{color:CP.navy}}>{cobertura}%</b></div>
+          <div style={{fontSize:10,color:CP.mute,marginTop:2}}>Alineación de pesos <b style={{color:CP.navy}}>{alineacion}%</b></div>
+        </div>
+      </div>
+
+      <div style={{position:"relative",marginBottom:6}}>
+        <div style={{display:"flex",height:11,borderRadius:6,overflow:"hidden",border:`1px solid ${CP.line}`}}>
+          {zonas.map((z,i)=><div key={i} style={{width:`${z.w}%`,background:z.c,opacity:.22}}/>)}
+        </div>
+        <div style={{position:"absolute",top:-4,left:`calc(${confianza}% - 9px)`,transition:"left .45s ease"}}>
+          <div style={{width:18,height:18,borderRadius:"50%",background:nivel.c,border:"3px solid #fff",
+            boxShadow:"0 2px 8px rgba(13,36,64,.3)"}}/>
+        </div>
+        <div style={{position:"absolute",top:-5,left:"calc(100% - 7px)"}} title="Configuración recomendada por I+D">
+          <div style={{width:12,height:20,borderRadius:3,border:`2px dashed ${CP.navy}`,background:"transparent"}}/>
+        </div>
+      </div>
+      <div style={{display:"flex"}}>
+        {zonas.map((z,i)=><div key={i} style={{width:`${z.w}%`,fontSize:8,color:CP.mute,fontWeight:700,
+          letterSpacing:.4,paddingLeft:2}}>{z.l}</div>)}
+      </div>
+      <div style={{display:"flex",justifyContent:"space-between",fontSize:10,color:CP.mute,marginTop:8}}>
+        <span>Configuración actual</span>
+        <span style={{fontWeight:700,color:CP.navy}}>┆ Recomendado I+D · 100 %</span>
+      </div>
+
+      {perdidas.length>0&&<div style={{marginTop:12,paddingTop:12,borderTop:`1px dashed ${CP.line}`}}>
+        <div style={{fontSize:10,color:CP.mute,fontWeight:700,letterSpacing:1,marginBottom:7}}>QUÉ ESTÁ LIMITANDO EL MODELO</div>
+        <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+          {perdidas.map(p=>(
+            <span key={p.id} style={{fontSize:10.5,background:"#FDECEC",color:"#8A2020",border:"1px solid #F6C9C9",
+              borderRadius:16,padding:"3px 10px",fontWeight:600}}>{p.nombre} <b>−{p.pts} pts</b></span>
+          ))}
+        </div>
+      </div>}
+    </div>
+  );
+}
+
+function FilaVariable({v,sumaActivas,onChange,onDelete}){
+  const [abierto,setAbierto]=useState(false);
+  const pesoEf = v.activa&&sumaActivas>0 ? Math.round((Number(v.peso)/sumaActivas)*1000)/10 : 0;
+  const directa = v.clase.toLowerCase().startsWith("medición");
+  const set=(k,val)=>onChange({...v,[k]:val});
+  const setTramo=(i,k,val)=>{
+    const t=v.tramos.map((x,j)=>j===i?{...x,[k]:val}:x);
+    onChange({...v,tramos:t});
+  };
+  const eliminar=()=>{
+    if(window.confirm(`¿Eliminar "${v.nombre}" del algoritmo? Puedes recuperarla con "Restaurar recomendado".`)) onDelete();
+  };
+  return(
+    <div style={{border:`1px solid ${v.activa?CP.line:"#EDF1F6"}`,borderLeft:`3px solid ${v.activa?(directa?CP.blue:CP.yellow):"#DDE4EC"}`,
+      borderRadius:11,background:v.activa?"#fff":"#FAFBFD",marginBottom:6,opacity:v.activa?1:.7}}>
+      <div style={{display:"flex",gap:10,padding:"9px 11px",alignItems:"center"}}>
+        <button onClick={()=>set("activa",!v.activa)} role="switch" aria-checked={v.activa}
+          aria-label={`${v.activa?"Desactivar":"Activar"} ${v.nombre}`}
+          style={{width:40,height:23,borderRadius:12,border:"none",cursor:"pointer",flexShrink:0,
+            background:v.activa?"#16A34A":"#C7D2DF",position:"relative",transition:"background .2s",padding:0}}>
+          <span style={{position:"absolute",top:2.5,left:v.activa?19:2.5,width:18,height:18,borderRadius:"50%",
+            background:"#fff",transition:"left .2s",boxShadow:"0 1px 3px rgba(0,0,0,.25)"}}/>
+        </button>
+
+        <div style={{flex:1,minWidth:0,cursor:"pointer"}} onClick={()=>setAbierto(a=>!a)}>
+          <div style={{display:"flex",alignItems:"center",gap:6,flexWrap:"wrap"}}>
+            <span style={{fontSize:13,fontWeight:700,color:CP.navy}}>{v.nombre}</span>
+            {v.tiempoDependiente&&<span title="Se acelera con la temperatura/humedad" style={{fontSize:12}}>🌡️</span>}
+            {!v.disponible&&<span style={{fontSize:8.5,fontWeight:700,padding:"1px 6px",borderRadius:5,
+              background:"#FDECEC",color:"#8A2020"}}>NO DISPONIBLE</span>}
+          </div>
+          <div style={{fontSize:10,color:CP.mute,marginTop:1}}>{directa?"Medición directa":"Proxy"} · peso {v.peso}%</div>
+        </div>
+
+        <input type="number" min="0" max="100" value={v.peso} onClick={e=>e.stopPropagation()}
+          onChange={e=>set("peso",Math.max(0,Math.min(100,Number(e.target.value)||0)))}
+          style={{width:50,padding:"6px 4px",borderRadius:7,border:`1px solid ${CP.line}`,fontSize:12.5,
+            fontWeight:700,color:CP.navy,textAlign:"center",background:"#F8FAFC",flexShrink:0}}/>
+
+        <button onClick={()=>setAbierto(a=>!a)} aria-label="Ver detalles" style={{background:"none",border:"none",
+          color:CP.mute,cursor:"pointer",fontSize:13,padding:"4px",flexShrink:0}}>{abierto?"▾":"▸"}</button>
+        <button onClick={eliminar} aria-label={`Eliminar ${v.nombre}`} title="Eliminar variable"
+          style={{background:"none",border:"none",color:"#C3CEDB",cursor:"pointer",fontSize:13,padding:"4px",flexShrink:0}}>✕</button>
+      </div>
+
+      {abierto&&<div style={{padding:"0 14px 13px 61px"}}>
+        <div style={{fontSize:11,color:"#5A6E85",lineHeight:1.55,marginBottom:6}}>{v.desc}</div>
+        <div style={{fontSize:10,color:CP.mute,marginBottom:9}}>
+          poder diagnóstico {v.poder}/100 · fuente: {v.fuente} · recomendado {v.pesoRec}% ·
+          efectivo actual <b style={{color:v.activa?CP.blue:CP.mute}}>{pesoEf}%</b>
+        </div>
+        <div style={{background:"#F8FAFC",border:`1px solid ${CP.line}`,borderRadius:10,padding:"11px 12px"}}>
+          <div style={{fontSize:10,color:CP.mute,fontWeight:700,letterSpacing:1,marginBottom:9}}>
+            ESCALA DE RIESGO · {v.unidad} · {v.dir==="asc"?"a mayor valor, mayor riesgo":"a menor valor, mayor riesgo"}
+          </div>
+          {v.tramos.map((t,i)=>(
+            <div key={i} style={{display:"flex",alignItems:"center",gap:9,marginBottom:7}}>
+              <span style={{fontSize:11,color:"#33455B",width:104,flexShrink:0}}>{t.txt}</span>
+              <input type="number" value={t.lim===null||t.lim===undefined?"":t.lim} placeholder="resto"
+                onChange={e=>setTramo(i,"lim",e.target.value===""?null:Number(e.target.value))}
+                style={{width:70,padding:"5px 7px",borderRadius:7,border:`1px solid ${CP.line}`,fontSize:11.5,
+                  color:CP.navy,background:"#fff",textAlign:"center"}}/>
+              <span style={{fontSize:10,color:CP.mute}}>→ riesgo</span>
+              <input type="number" min="0" max="100" value={t.r}
+                onChange={e=>setTramo(i,"r",Math.max(0,Math.min(100,Number(e.target.value)||0)))}
+                style={{width:56,padding:"5px 7px",borderRadius:7,border:`1px solid ${CP.line}`,fontSize:11.5,
+                  fontWeight:700,color:CP.navy,background:"#fff",textAlign:"center"}}/>
+              <div style={{flex:1,minWidth:60}}><BarraEscala v={t.r} c={t.r<35?"#16A34A":t.r<65?"#D97706":"#DC2626"} alto={5}/></div>
+            </div>
+          ))}
+          <div style={{display:"flex",alignItems:"center",gap:9,marginTop:10,paddingTop:9,borderTop:`1px dashed ${CP.line}`}}>
+            <span style={{fontSize:11,color:"#33455B",width:104,flexShrink:0}}>Sin dato registrado</span>
+            <input type="number" min="0" max="100" value={v.sinDato}
+              onChange={e=>set("sinDato",Math.max(0,Math.min(100,Number(e.target.value)||0)))}
+              style={{width:56,padding:"5px 7px",borderRadius:7,border:`1px solid ${CP.line}`,fontSize:11.5,
+                fontWeight:700,color:CP.navy,background:"#fff",textAlign:"center"}}/>
+            <span style={{fontSize:10,color:CP.mute}}>Penalización por no medir.</span>
+          </div>
+        </div>
+      </div>}
+    </div>
+  );
+}
+
+function FormNuevaVariable({onAdd,onCancel}){
+  const [f,setF]=useState({nombre:"",unidad:"",peso:10,evidencia:"proxy",dir:"asc",
+    t1:{lim:"",r:10},t2:{lim:"",r:50},t3:{r:90}});
+  const set=(k,v)=>setF(p=>({...p,[k]:v}));
+  const EV={directa:{poder:90,clase:"Medición directa"},indirecta:{poder:65,clase:"Medición indirecta"},proxy:{poder:45,clase:"Proxy de condición"}};
+  const crear=()=>{
+    if(!f.nombre.trim()) return;
+    const ev=EV[f.evidencia];
+    const id="cst_"+Date.now().toString(36);
+    onAdd({
+      id, nombre:f.nombre.trim(), unidad:f.unidad.trim()||"—", campo:id, dir:f.dir,
+      clase:ev.clase, poder:ev.poder, pesoRec:Number(f.peso)||10, peso:Number(f.peso)||10,
+      activa:true, disponible:true, custom:true, sinDato:55,
+      desc:"Variable añadida por el Jefe de I+D. Mientras no exista un campo de captura en planta, todos los equipos la evalúan como «sin dato».",
+      fuente:"Definida por I+D",
+      tramos:[
+        {lim:f.t1.lim===""?null:Number(f.t1.lim),r:Number(f.t1.r)||10,txt:"Tramo bajo"},
+        {lim:f.t2.lim===""?null:Number(f.t2.lim),r:Number(f.t2.r)||50,txt:"Tramo medio"},
+        {lim:null,r:Number(f.t3.r)||90,txt:"Resto"},
+      ],
+    });
+  };
+  const inp={padding:"9px 11px",borderRadius:9,border:`1px solid ${CP.line}`,fontSize:12.5,color:CP.navy,background:"#fff",width:"100%"};
+  return(
+    <div style={{border:`1px dashed ${CP.blue}`,borderRadius:12,background:CP.blueSoft,padding:"14px 16px",marginBottom:10}}>
+      <div style={{fontSize:12.5,fontWeight:700,color:CP.navy,marginBottom:10}}>Nueva variable del algoritmo</div>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(150px,1fr))",gap:9,marginBottom:10}}>
+        <div><label style={{fontSize:10,color:"#33455B",fontWeight:700,display:"block",marginBottom:4}}>Nombre</label>
+          <input style={inp} value={f.nombre} onChange={e=>set("nombre",e.target.value)} placeholder="Ej: Conductividad del enjuague"/></div>
+        <div><label style={{fontSize:10,color:"#33455B",fontWeight:700,display:"block",marginBottom:4}}>Unidad</label>
+          <input style={inp} value={f.unidad} onChange={e=>set("unidad",e.target.value)} placeholder="Ej: µS/cm"/></div>
+        <div><label style={{fontSize:10,color:"#33455B",fontWeight:700,display:"block",marginBottom:4}}>Peso inicial (%)</label>
+          <input style={inp} type="number" min="0" max="100" value={f.peso} onChange={e=>set("peso",e.target.value)}/></div>
+        <div><label style={{fontSize:10,color:"#33455B",fontWeight:700,display:"block",marginBottom:4}}>Tipo de evidencia</label>
+          <select style={inp} value={f.evidencia} onChange={e=>set("evidencia",e.target.value)}>
+            <option value="directa">Medición directa (poder 90)</option>
+            <option value="indirecta">Medición indirecta (poder 65)</option>
+            <option value="proxy">Proxy de condición (poder 45)</option>
+          </select></div>
+        <div><label style={{fontSize:10,color:"#33455B",fontWeight:700,display:"block",marginBottom:4}}>Dirección</label>
+          <select style={inp} value={f.dir} onChange={e=>set("dir",e.target.value)}>
+            <option value="asc">A mayor valor, mayor riesgo</option>
+            <option value="desc">A menor valor, mayor riesgo</option>
+          </select></div>
+      </div>
+      <div style={{fontSize:10,color:"#33455B",fontWeight:700,marginBottom:6}}>ESCALA (límite del tramo → riesgo 0-100)</div>
+      {[["t1","Tramo bajo"],["t2","Tramo medio"]].map(([k,l])=>(
+        <div key={k} style={{display:"flex",alignItems:"center",gap:8,marginBottom:6}}>
+          <span style={{fontSize:11,color:"#33455B",width:88}}>{l}</span>
+          <input type="number" value={f[k].lim} onChange={e=>set(k,{...f[k],lim:e.target.value})} placeholder="límite"
+            style={{...inp,width:78}}/>
+          <span style={{fontSize:10,color:CP.mute}}>→</span>
+          <input type="number" value={f[k].r} onChange={e=>set(k,{...f[k],r:e.target.value})} style={{...inp,width:64}}/>
+        </div>
+      ))}
+      <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:12}}>
+        <span style={{fontSize:11,color:"#33455B",width:88}}>Resto</span>
+        <span style={{fontSize:11,color:CP.mute,width:78,textAlign:"center"}}>—</span>
+        <span style={{fontSize:10,color:CP.mute}}>→</span>
+        <input type="number" value={f.t3.r} onChange={e=>set("t3",{r:e.target.value})} style={{...inp,width:64}}/>
+      </div>
+      <div style={{display:"flex",gap:9}}>
+        <button onClick={onCancel} style={{padding:"10px 18px",borderRadius:10,border:`1px solid ${CP.line}`,
+          background:"#fff",color:"#5A6E85",fontSize:12.5,fontWeight:600,cursor:"pointer"}}>Cancelar</button>
+        <button onClick={crear} style={{padding:"10px 20px",borderRadius:10,border:"none",background:CP.blue,
+          color:"#fff",fontSize:12.5,fontWeight:700,cursor:"pointer"}}>Agregar variable</button>
+      </div>
+    </div>
+  );
+}
+
+function FilaAccion({a,activasVars,onChangePoder}){
+  const [abierto,setAbierto]=useState(false);
+  const disponible=!a.req||activasVars.has(a.req);
+  const b=badgePoder(a.poder);
+  const campos=Object.keys(a.afecta||{});
+  const esMedicion=a.poder<=0;
+  return(
+    <div style={{border:`1px solid ${CP.line}`,borderLeft:`3px solid ${esMedicion?"#DDE4EC":b.fg}`,
+      borderRadius:11,background:disponible?"#fff":"#FAFBFD",marginBottom:6,opacity:disponible?1:.6}}>
+      <div style={{display:"flex",gap:10,padding:"9px 12px",alignItems:"center"}}>
+        <div style={{flex:1,minWidth:0,cursor:"pointer"}} onClick={()=>setAbierto(x=>!x)}>
+          <div style={{display:"flex",alignItems:"center",gap:7,flexWrap:"wrap"}}>
+            <span style={{fontSize:12.5,fontWeight:700,color:CP.navy}}>{a.t}</span>
+            {!disponible&&<span style={{fontSize:8.5,fontWeight:700,padding:"1px 6px",borderRadius:5,
+              background:"#FDECEC",color:"#8A2020"}}>VARIABLE INACTIVA</span>}
+          </div>
+          <div style={{fontSize:10,color:CP.mute,marginTop:2}}>{esMedicion?"Mide, no protege":b.label}</div>
+        </div>
+
+        {!esMedicion&&<div style={{width:52,flexShrink:0}}>
+          <BarraEscala v={a.poder} c={b.fg} alto={5}/>
+        </div>}
+        <input type="number" min="0" max="100" value={a.poder} onClick={e=>e.stopPropagation()}
+          onChange={e=>onChangePoder(Math.max(0,Math.min(100,Number(e.target.value)||0)))}
+          style={{width:48,padding:"5px 4px",borderRadius:7,border:`1px solid ${CP.line}`,fontSize:12.5,
+            fontWeight:700,color:esMedicion?CP.mute:CP.navy,textAlign:"center",background:"#F8FAFC",flexShrink:0}}/>
+        <button onClick={()=>setAbierto(x=>!x)} aria-label="Ver detalle" style={{background:"none",border:"none",
+          color:CP.mute,cursor:"pointer",fontSize:13,padding:"4px",flexShrink:0}}>{abierto?"▾":"▸"}</button>
+      </div>
+
+      {abierto&&<div style={{padding:"0 12px 11px 15px"}}>
+        {a.mecanismo&&<div style={{fontSize:11,color:"#5A6E85",lineHeight:1.55}}>{a.mecanismo}</div>}
+        {campos.length>0&&<div style={{fontSize:10,color:CP.mute,marginTop:5}}>
+          Deja en su mejor tramo: {campos.join(", ")}</div>}
+      </div>}
+    </div>
+  );
+}
+function EditorBandas({bandas,unidad,onChange}){
+  return(
+    <div style={{display:"flex",flexDirection:"column",gap:8,marginTop:11}}>
+      {bandas.map((b,i)=>(
+        <label key={i} style={{display:"flex",alignItems:"center",gap:9,fontSize:11.5,color:"#33455B",fontWeight:600}}>
+          <span style={{width:130,flexShrink:0}}>{b.txt}</span>
+          <span style={{color:CP.mute,fontWeight:500}}>×</span>
+          <input type="number" step="0.05" min="0.1" max="4" value={b.factor}
+            onChange={e=>onChange(i,Number(e.target.value)||1)}
+            style={{width:64,padding:"6px 8px",borderRadius:8,border:`1px solid ${CP.line}`,fontSize:12.5,
+              fontWeight:700,color:CP.navy,textAlign:"center",background:"#F8FAFC"}}/>
+          <div style={{flex:1,minWidth:60}}><BarraEscala v={Math.min(100,b.factor*40)}
+            c={b.factor<1?"#16A34A":b.factor<1.3?"#D97706":"#DC2626"} alto={5}/></div>
+        </label>
+      ))}
+    </div>
+  );
+}
+function FilaAreaImportancia({area,valor,onChange,cortesBase}){
+  const [abierto,setAbierto]=useState(false);
+  const imp=IMPORTANCIA_AREA[valor.nivel]||IMPORTANCIA_AREA.media;
+  const clamp=n=>Math.max(5,Math.min(99,n));
+  const cortesResultantes={
+    medio:clamp(cortesBase.medio+imp.ajuste), alto:clamp(cortesBase.alto+imp.ajuste), critico:clamp(cortesBase.critico+imp.ajuste),
+  };
+  return(
+    <div style={{border:`1px solid ${CP.line}`,borderLeft:`3px solid ${imp.c}`,borderRadius:11,
+      background:"#fff",marginBottom:6,padding:"10px 13px"}}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:10,flexWrap:"wrap"}}>
+        <span style={{fontSize:12.5,fontWeight:700,color:CP.navy,cursor:"pointer"}}
+          onClick={()=>setAbierto(a=>!a)}>{area}</span>
+        <div style={{display:"flex",gap:4}}>
+          {Object.entries(IMPORTANCIA_AREA).map(([k,v])=>(
+            <button key={k} onClick={()=>onChange({...valor,nivel:k})}
+              style={{padding:"4px 10px",borderRadius:7,cursor:"pointer",fontSize:10,fontWeight:700,
+                border:`1px solid ${valor.nivel===k||(!valor.nivel&&k==="media")?v.c:CP.line}`,
+                background:valor.nivel===k||(!valor.nivel&&k==="media")?v.c+"18":"#fff",
+                color:valor.nivel===k||(!valor.nivel&&k==="media")?v.c:"#5A6E85"}}>{v.label}</button>
+          ))}
+        </div>
+      </div>
+      <div style={{fontSize:10,color:CP.mute,marginTop:4}}>
+        Cortes: precaución {cortesResultantes.medio} · alerta {cortesResultantes.alto} · crítico {cortesResultantes.critico}
+        {imp.ajuste!==0&&<span style={{color:imp.c,fontWeight:700}}> ({imp.ajuste>0?"+":""}{imp.ajuste})</span>}
+      </div>
+      {abierto&&<>
+        <div style={{fontSize:10.5,color:"#5A6E85",marginTop:7,lineHeight:1.5}}>{imp.d}</div>
+        <input value={valor.motivo||""} onChange={e=>onChange({...valor,motivo:e.target.value})}
+          placeholder="Motivo (opcional): volumen, daño potencial, historial de fallas…"
+          style={{width:"100%",marginTop:7,padding:"8px 11px",borderRadius:8,border:`1px solid ${CP.line}`,
+            fontSize:11.5,color:CP.navy,background:"#F8FAFC"}}/>
+      </>}
+    </div>
+  );
+}
+function FilaPilotoArea({area,equiposArea,piloto,onChange}){
+  const [abierto,setAbierto]=useState(false);
+  const areaCompleta=piloto.areas.includes(area);
+  const enEquipos=equiposArea.filter(e=>piloto.equipos.includes(e.id)).length;
+  const nIncluidos=areaCompleta?equiposArea.length:enEquipos;
+  const toggleArea=()=>{
+    const areas=areaCompleta?piloto.areas.filter(a=>a!==area):[...piloto.areas,area];
+    onChange({...piloto,areas});
+  };
+  const toggleEquipo=(id)=>{
+    const equipos=piloto.equipos.includes(id)?piloto.equipos.filter(x=>x!==id):[...piloto.equipos,id];
+    onChange({...piloto,equipos});
+  };
+  return(
+    <div style={{border:`1px solid ${nIncluidos>0?CP.blue+"44":CP.line}`,borderRadius:11,marginBottom:7,
+      background:nIncluidos>0?CP.blueSoft:"#fff",overflow:"hidden"}}>
+      <div style={{display:"flex",alignItems:"center",gap:10,padding:"10px 13px"}}>
+        <button onClick={toggleArea} role="checkbox" aria-checked={areaCompleta}
+          style={{width:20,height:20,borderRadius:6,border:`2px solid ${areaCompleta?CP.blue:"#C7D2DF"}`,
+            background:areaCompleta?CP.blue:"#fff",cursor:"pointer",flexShrink:0,display:"flex",
+            alignItems:"center",justifyContent:"center",padding:0}}>
+          {areaCompleta&&<span style={{color:"#fff",fontSize:12,fontWeight:900}}>✓</span>}
+        </button>
+        <div style={{flex:1,minWidth:0,cursor:"pointer"}} onClick={()=>setAbierto(a=>!a)}>
+          <span style={{fontSize:12.5,fontWeight:700,color:CP.navy}}>{area}</span>
+          <span style={{fontSize:11,color:CP.mute,marginLeft:7}}>
+            {nIncluidos}/{equiposArea.length} en piloto</span>
+        </div>
+        <button onClick={()=>setAbierto(a=>!a)} style={{background:"none",border:"none",color:CP.blue,
+          fontSize:11,fontWeight:700,cursor:"pointer"}}>{abierto?"Ocultar":"Equipos"}</button>
+      </div>
+      {abierto&&<div style={{padding:"0 13px 11px",display:"flex",flexDirection:"column",gap:4}}>
+        {equiposArea.map(e=>{
+          const on=areaCompleta||piloto.equipos.includes(e.id);
+          return(
+            <label key={e.id} style={{display:"flex",alignItems:"center",gap:8,fontSize:11.5,
+              color:areaCompleta?CP.mute:"#33455B",cursor:areaCompleta?"default":"pointer"}}>
+              <input type="checkbox" checked={on} disabled={areaCompleta}
+                onChange={()=>toggleEquipo(e.id)} style={{width:14,height:14,accentColor:CP.blue}}/>
+              {e.codigo}
+            </label>
+          );
+        })}
+      </div>}
+    </div>
+  );
+}
+function SelectorPiloto({piloto,onChange}){
+  const totalPiloto=EQUIPOS_BASE.filter(e=>piloto.areas.includes(e.area)||piloto.equipos.includes(e.id)).length;
+  return(
+    <div style={{background:"#fff",border:`1px solid ${CP.line}`,borderRadius:12,padding:"14px 16px"}}>
+      <div style={{display:"flex",alignItems:"flex-start",gap:12,marginBottom:piloto.activo?14:0}}>
+        <button onClick={()=>onChange({...piloto,activo:!piloto.activo})}
+          role="switch" aria-checked={piloto.activo} aria-label="Modo piloto"
+          style={{width:44,height:25,borderRadius:14,border:"none",cursor:"pointer",flexShrink:0,marginTop:2,
+            background:piloto.activo?"#16A34A":"#C7D2DF",position:"relative",padding:0}}>
+          <span style={{position:"absolute",top:3,left:piloto.activo?22:3,width:19,height:19,borderRadius:"50%",
+            background:"#fff",transition:"left .2s",boxShadow:"0 1px 3px rgba(0,0,0,.25)"}}/>
+        </button>
+        <div style={{flex:1}}>
+          <div style={{fontSize:12.5,fontWeight:700,color:CP.navy}}>Modo piloto</div>
+          <div style={{fontSize:11,color:"#5A6E85",marginTop:3,lineHeight:1.55}}>
+            Apagado: protege los 81 equipos, como hoy. Encendido: solo protege las áreas o equipos que
+            marques abajo — el resto queda fuera de cálculo, mostrado en gris como "❄ fuera de piloto"
+            en vez de mezclarse con los equipos en condición segura. Útil para un piloto estratégico en
+            una o dos áreas antes de expandir al resto de la planta.
+          </div>
+        </div>
+      </div>
+      {piloto.activo&&<>
+        <div style={{fontSize:11,fontWeight:700,color:CP.navy,marginBottom:8}}>
+          {totalPiloto} de {EQUIPOS_BASE.length} equipos en el piloto
+        </div>
+        {AREAS.map(area=>(
+          <FilaPilotoArea key={area} area={area} equiposArea={EQUIPOS_BASE.filter(e=>e.area===area)}
+            piloto={piloto} onChange={onChange}/>
+        ))}
+      </>}
+    </div>
+  );
+}
+function ConfigPanel({cfgInicial,onGuardar,onClose,bitacora,conexion}){
+  const [cfg,setCfg]=useState(()=>JSON.parse(JSON.stringify(cfgInicial)));
+  const [tab,setTab]=useState("vars");
+  const [nueva,setNueva]=useState(false);
+  const [msg,setMsg]=useState("");
+  const [guardando,setGuardando]=useState(false);
+  const [nombre,setNombre]=useState("");
+  const sumaActivas=cfg.variables.filter(v=>v.activa).reduce((s,v)=>s+(Number(v.peso)||0),0);
+  const activas=cfg.variables.filter(v=>v.activa);
+  const inactivas=cfg.variables.filter(v=>!v.activa);
+  const upd=(nv)=>setCfg(c=>({...c,variables:c.variables.map(v=>v.id===nv.id?nv:v)}));
+  const del=(id)=>setCfg(c=>({...c,variables:c.variables.filter(v=>v.id!==id)}));
+  const restaurar=()=>{ setCfg(JSON.parse(JSON.stringify(CONFIG_DEFAULT))); setMsg("Configuración recomendada por I+D restaurada."); };
+  const tabs=[{k:"vars",l:"Variables"},{k:"acciones",l:"Acciones y protección"},{k:"reglas",l:"Semáforo y ambiente"},{k:"areas",l:"Áreas y prioridad"},{k:"acceso",l:"Acceso y respaldo"}];
+  const btn=(activo)=>({padding:"9px 16px",borderRadius:9,border:"none",cursor:"pointer",fontSize:12.5,fontWeight:700,
+    background:activo?CP.navy:"transparent",color:activo?"#fff":"#5A6E85"});
+
+  return(
+    <div style={{position:"fixed",inset:0,background:"rgba(13,36,64,.6)",zIndex:400,display:"flex",
+      alignItems:"flex-start",justifyContent:"center",padding:"18px 12px",overflowY:"auto"}}>
+      <div className="pop" style={{background:CP.bg,borderRadius:18,width:"100%",maxWidth:760,overflow:"hidden",
+        boxShadow:"0 30px 80px rgba(0,0,0,.4)",marginBottom:24}}>
+
+        <div style={{background:CP.navy,padding:"16px 20px",display:"flex",alignItems:"center",gap:13}}>
+          <div style={{color:CP.yellow,display:"flex"}}><Engranaje size={24}/></div>
+          <div style={{flex:1,minWidth:0}}>
+            <div style={{fontSize:9.5,color:CP.yellow,letterSpacing:1.8,fontWeight:700}}>CONFIGURACIÓN DEL ALGORITMO IRM</div>
+            <input value={nombre} onChange={e=>setNombre(e.target.value)} placeholder="Tu nombre (opcional, queda en la bitácora)"
+              style={{marginTop:5,width:"100%",maxWidth:280,padding:"5px 9px",borderRadius:7,border:"1px solid rgba(255,255,255,.2)",
+                background:"rgba(255,255,255,.08)",color:"#fff",fontSize:11,outline:"none"}}/>
+            <div style={{marginTop:6}}>
+              {conexion==="conectado"
+                ?<span style={{fontSize:10,color:"#8FE9B4",fontWeight:600}}>● Se guardará en la Sheet compartida — aplica a todos los artefactos</span>
+                :<span style={{fontSize:10,color:"#F5C177",fontWeight:600}}>● Se guardará solo en este navegador (backend no conectado)</span>}
+            </div>
+          </div>
+          <button onClick={onClose} aria-label="Cerrar" style={{background:"rgba(255,255,255,.12)",border:"none",color:"#fff",
+            borderRadius:"50%",width:32,height:32,cursor:"pointer",fontSize:15}}>✕</button>
+        </div>
+
+        <div style={{padding:"16px 18px 0"}}>
+          <BarraConfianza cfg={cfg}/>
+          <div style={{display:"flex",gap:4,background:"#fff",border:`1px solid ${CP.line}`,borderRadius:11,
+            padding:4,marginTop:14,overflowX:"auto"}}>
+            {tabs.map(t=><button key={t.k} onClick={()=>setTab(t.k)} style={{...btn(tab===t.k),whiteSpace:"nowrap"}}>{t.l}</button>)}
+          </div>
+        </div>
+
+        <div style={{padding:"14px 18px 0",minHeight:200}}>
+          {tab==="vars"&&<>
+            <InfoPlegable titulo="Sobre temperatura, humedad y los pesos">
+              La temperatura y la humedad no aparecen aquí: son un dato único de planta, no de equipo, y ya
+              no ponderan por sí solas — aceleran el reloj de las variables de tiempo (marcadas 🌡️ abajo).
+              Ajústalas en "Semáforo y ambiente". Los pesos de esta lista se normalizan solos a 100% entre
+              las variables activas — no hace falta que sumen 100 a mano.
+            </InfoPlegable>
+            <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",margin:"10px 0",flexWrap:"wrap",gap:8}}>
+              <div style={{fontSize:11,color:CP.mute,fontWeight:700}}>
+                {activas.length} de {cfg.variables.length} activas · suma {sumaActivas}%
+              </div>
+              {!nueva&&<button onClick={()=>setNueva(true)} style={{padding:"6px 13px",borderRadius:9,border:`1px solid ${CP.blue}`,
+                background:"#fff",color:CP.blue,fontSize:11,fontWeight:700,cursor:"pointer"}}>+ Variable</button>}
+            </div>
+            {nueva&&<FormNuevaVariable onCancel={()=>setNueva(false)}
+              onAdd={v=>{setCfg(c=>({...c,variables:[...c.variables,v]}));setNueva(false);}}/>}
+            {cfg.variables.map(v=><FilaVariable key={v.id} v={v} sumaActivas={sumaActivas} onChange={upd} onDelete={()=>del(v.id)}/>)}
+            {activas.length===0&&<div style={{background:"#FDECEC",border:"1px solid #F6C9C9",borderRadius:12,
+              padding:"14px 16px",fontSize:12.5,color:"#8A2020",fontWeight:600}}>
+              Sin variables activas no hay algoritmo. Los 81 equipos quedarán sin índice hasta que actives al menos una.
+            </div>}
+          </>}
+
+          {tab==="acciones"&&<>
+            <InfoPlegable titulo="Qué es el poder de protección y en qué se diferencia del % de Variables">
+              El <b>% de Variables</b> es cuánto pesa una <b>medición</b> en el cálculo del IRM: si lo subes,
+              el índice de todos los equipos cambia. El <b>poder</b> de aquí es cuánto reduce el riesgo real
+              una <b>intervención</b>, y no toca el IRM — el índice baja porque la acción deja alguna variable
+              en su mejor tramo (nebulizar PAA pone "días desde PAA" en cero). Lo que sí hace este número es
+              ordenar el protocolo que ve el operador: primero lo que más protege, y las mediciones al final.
+            </InfoPlegable>
+            <div style={{height:10}}/>
+            {(()=>{
+              const activasVars=new Set(cfg.variables.filter(v=>v.activa).map(v=>v.id));
+              const ids=[...new Set(Object.values(ACCIONES_POR_NIVEL).flat())];
+              const items=ids.map(id=>{
+                const base=ACCIONES_CATALOGO[id];
+                const poder=cfg.poderAcciones?.[id]??base.poder;
+                const niveles=Object.keys(ACCIONES_POR_NIVEL).filter(n=>ACCIONES_POR_NIVEL[n].includes(id));
+                return {id,base,poder,niveles};
+              }).sort((a,b)=>b.poder-a.poder);
+              const intervenciones=items.filter(i=>i.poder>0);
+              const mediciones=items.filter(i=>i.poder<=0);
+              const bloque=(titulo,lista)=>lista.length>0&&(
+                <div style={{marginBottom:14}}>
+                  <div style={{fontSize:10,color:CP.mute,fontWeight:700,letterSpacing:1,marginBottom:7}}>{titulo}</div>
+                  {lista.map(i=>(
+                    <FilaAccion key={i.id} a={{...i.base,poder:i.poder}} activasVars={activasVars}
+                      onChangePoder={p=>setCfg(c=>({...c,poderAcciones:{...c.poderAcciones,[i.id]:p}}))}/>
+                  ))}
+                </div>
+              );
+              return <>
+                {bloque("INTERVENCIONES · reducen el riesgo",intervenciones)}
+                {bloque("MEDICIONES · revelan el riesgo, no lo reducen",mediciones)}
+              </>;
+            })()}
+          </>}
+
+          {tab==="reglas"&&<>
+            <div style={{background:"#fff",border:`1px solid ${CP.line}`,borderRadius:12,padding:"14px 16px",marginBottom:10}}>
+              <div style={{fontSize:12.5,fontWeight:700,color:CP.navy,marginBottom:3}}>Cortes del semáforo</div>
+              <div style={{fontSize:11,color:"#5A6E85",marginBottom:12,lineHeight:1.55}}>
+                Hoy son 40 / 65 / 80, elegidos por criterio. Cuando tengas eventos de contaminación confirmados,
+                ajústalos con una curva ROC en vez de a mano.
+              </div>
+              <div style={{display:"flex",gap:14,flexWrap:"wrap"}}>
+                {[{k:"medio",l:"Precaución desde",c:NC.medio.bg},{k:"alto",l:"Alerta desde",c:NC.alto.bg},{k:"critico",l:"Crítico desde",c:NC.critico.bg}].map(x=>(
+                  <label key={x.k} style={{display:"flex",alignItems:"center",gap:8,fontSize:11.5,color:"#33455B",fontWeight:600}}>
+                    <Punto c={x.c} size={9}/>{x.l}
+                    <input type="number" min="0" max="100" value={cfg.cortes[x.k]}
+                      onChange={e=>setCfg(c=>({...c,cortes:{...c.cortes,[x.k]:Math.max(0,Math.min(100,Number(e.target.value)||0))}}))}
+                      style={{width:60,padding:"6px 8px",borderRadius:8,border:`1px solid ${CP.line}`,fontSize:13,
+                        fontWeight:700,color:CP.navy,textAlign:"center",background:"#F8FAFC"}}/>
+                  </label>
+                ))}
+              </div>
+            </div>
+
+            <div style={{background:"#fff",border:`1px solid ${CP.line}`,borderRadius:12,padding:"14px 16px",marginBottom:14}}>
+              <div style={{display:"flex",alignItems:"flex-start",gap:12}}>
+                <button onClick={()=>setCfg(c=>({...c,factorAmbiental:{...c.factorAmbiental,activo:!c.factorAmbiental.activo}}))}
+                  role="switch" aria-checked={cfg.factorAmbiental.activo} aria-label="Aceleración ambiental"
+                  style={{width:44,height:25,borderRadius:14,border:"none",cursor:"pointer",flexShrink:0,marginTop:2,
+                    background:cfg.factorAmbiental.activo?"#16A34A":"#C7D2DF",position:"relative",padding:0}}>
+                  <span style={{position:"absolute",top:3,left:cfg.factorAmbiental.activo?22:3,width:19,height:19,borderRadius:"50%",
+                    background:"#fff",transition:"left .2s",boxShadow:"0 1px 3px rgba(0,0,0,.25)"}}/>
+                </button>
+                <div style={{flex:1}}>
+                  <div style={{fontSize:12.5,fontWeight:700,color:CP.navy}}>Aceleración ambiental</div>
+                  <div style={{fontSize:11,color:"#5A6E85",marginTop:3,lineHeight:1.55}}>
+                    Temperatura y humedad son un dato único de planta, no de equipo — no ponderan por sí solas,
+                    aceleran el reloj de los días sin intervención (detenido, sin PAA, sin sanitizar, sin rotar).
+                    "Días efectivos" = días reales × factor temperatura × factor humedad, evaluados contra la
+                    misma escala de siempre de esa variable — nunca se vuelve a multiplicar sobre el IRM ya
+                    calculado. Ambos factores comparten un único camino: no se pueden contar dos veces.
+                  </div>
+                  {cfg.factorAmbiental.activo&&<>
+                    <div style={{fontSize:10.5,fontWeight:700,color:CP.navy,marginTop:13}}>TEMPERATURA</div>
+                    <EditorBandas bandas={cfg.factorAmbiental.temperatura}
+                      onChange={(i,v)=>setCfg(c=>({...c,factorAmbiental:{...c.factorAmbiental,
+                        temperatura:c.factorAmbiental.temperatura.map((x,j)=>j===i?{...x,factor:v}:x)}}))}/>
+                    <div style={{fontSize:10.5,fontWeight:700,color:CP.navy,marginTop:15}}>HUMEDAD RELATIVA</div>
+                    <div style={{fontSize:10,color:CP.mute,marginBottom:2}}>
+                      Umbral de condensación/crecimiento microbiano según EPA · ASHRAE: riesgo sube sobre 60% HR sostenida.
+                    </div>
+                    <EditorBandas bandas={cfg.factorAmbiental.humedad}
+                      onChange={(i,v)=>setCfg(c=>({...c,factorAmbiental:{...c.factorAmbiental,
+                        humedad:c.factorAmbiental.humedad.map((x,j)=>j===i?{...x,factor:v}:x)}}))}/>
+                  </>}
+                  <div style={{marginTop:10,fontSize:10,color:CP.mute}}>
+                    Se aplica a: Días detenido, Días desde PAA, Días desde sanitización completa, Días desde última fabricación.
+                  </div>
+                </div>
+              </div>
+            </div>
+          </>}
+
+          {tab==="areas"&&<>
+            <InfoPlegable titulo="Qué hace la importancia de área">
+              No cambia el IRM de ningún equipo — solo desde qué IRM esa área entra en precaución, alerta
+              o crítico. Alta importancia exige acción con menos margen; baja tolera un poco más. "Media"
+              es el valor por defecto y no mueve nada.
+            </InfoPlegable>
+            <div style={{height:10}}/>
+            {AREAS.map(area=>(
+              <FilaAreaImportancia key={area} area={area} cortesBase={cfg.cortes}
+                valor={cfg.importanciaAreas?.[area]||{nivel:"media",motivo:""}}
+                onChange={v=>setCfg(c=>({...c,importanciaAreas:{...c.importanciaAreas,[area]:v}}))}/>
+            ))}
+
+            <div style={{marginTop:22,paddingTop:18,borderTop:`1px dashed ${CP.line}`}}>
+              <SelectorPiloto piloto={cfg.piloto} onChange={p=>setCfg(c=>({...c,piloto:p}))}/>
+            </div>
+          </>}
+
+          {tab==="acceso"&&<>
+            <div style={{background:CP.blueSoft,border:`1px solid ${CP.blue}33`,borderRadius:12,padding:"14px 16px",marginBottom:10}}>
+              <div style={{fontSize:12.5,fontWeight:700,color:"#125A93",marginBottom:6}}>Acceso abierto por ahora</div>
+              <div style={{fontSize:11.5,color:"#125A93",lineHeight:1.65}}>
+                Sin candado de clave ni nombre: cualquiera con el link puede entrar aquí y guardar cambios,
+                para agilizar mientras se define el modelo real de acceso. Cuando quieras restringirlo (login
+                con cuenta @codelpa, lista de autorizados), lo activamos.
+              </div>
+            </div>
+
+            <div style={{background:"#fff",border:`1px solid ${CP.line}`,borderRadius:12,padding:"14px 16px",marginBottom:10}}>
+              <div style={{fontSize:12.5,fontWeight:700,color:CP.navy,marginBottom:8}}>Respaldo de la configuración</div>
+              <div style={{fontSize:11,color:"#5A6E85",lineHeight:1.6,marginBottom:10}}>
+                La configuración queda en este navegador. Para dejarla fija en el archivo publicado, copia el JSON
+                y reemplaza <code>CONFIG_DEFAULT</code> en el código.
+              </div>
+              <button onClick={()=>{
+                  const txt=JSON.stringify(cfg,null,2);
+                  if(navigator.clipboard&&navigator.clipboard.writeText){
+                    navigator.clipboard.writeText(txt).then(()=>setMsg("Configuración copiada al portapapeles."))
+                      .catch(()=>setMsg("No se pudo copiar. Revisa la consola del navegador."));
+                    console.log(txt);
+                  } else { console.log(txt); setMsg("Configuración impresa en la consola del navegador."); }
+                }}
+                style={{padding:"10px 18px",borderRadius:9,border:`1px solid ${CP.blue}`,background:"#fff",
+                  color:CP.blue,fontSize:12.5,fontWeight:700,cursor:"pointer"}}>Copiar configuración (JSON)</button>
+            </div>
+
+            {bitacora.length>0&&<div style={{background:"#fff",border:`1px solid ${CP.line}`,borderRadius:12,padding:"14px 16px"}}>
+              <div style={{fontSize:12.5,fontWeight:700,color:CP.navy,marginBottom:8}}>Cambios de esta sesión</div>
+              {bitacora.map((b,i)=>(
+                <div key={i} style={{fontSize:11,color:"#5A6E85",padding:"5px 0",borderBottom:i<bitacora.length-1?`1px solid ${CP.line}`:"none"}}>
+                  <b style={{color:CP.navy}}>{b.usuario}</b> · {b.fecha} · nivel de seguridad {b.conf} %
+                </div>
+              ))}
+            </div>}
+          </>}
+        </div>
+
+        {msg&&<div style={{margin:"12px 18px 0",background:CP.blueSoft,border:`1px solid ${CP.blue}44`,
+          borderRadius:9,padding:"9px 13px",fontSize:11.5,color:"#125A93",fontWeight:600}}>{msg}</div>}
+
+        <div style={{display:"flex",gap:9,padding:"16px 18px 18px",flexWrap:"wrap"}}>
+          <button onClick={restaurar} style={{padding:"12px 16px",borderRadius:11,border:`1px solid ${CP.line}`,
+            background:"#fff",color:"#5A6E85",fontSize:12.5,fontWeight:600,cursor:"pointer"}}>Restaurar recomendado</button>
+          <div style={{flex:1}}/>
+          <button onClick={onClose} style={{padding:"12px 18px",borderRadius:11,border:`1px solid ${CP.line}`,
+            background:"#fff",color:"#5A6E85",fontSize:12.5,fontWeight:600,cursor:"pointer"}}>Descartar</button>
+          <button onClick={async()=>{
+              setGuardando(true);
+              const r=await onGuardar(cfg,nombre);
+              setGuardando(false);
+              if(r&&r.ok===false) setMsg(r.error||"No se pudo guardar en el servidor. Revisa la conexión.");
+            }} disabled={guardando} style={{padding:"12px 26px",borderRadius:11,border:"none",
+            background:guardando?"#5A6E85":CP.navy,color:"#fff",fontSize:13,fontWeight:700,
+            cursor:guardando?"wait":"pointer"}}>{guardando?"Guardando…":"Guardar y aplicar"}</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════
+   MODALES
+   ═══════════════════════════════════════════════════════════ */
+function GuiaModal({onClose}){
+  const pasos=[
+    {n:"1",t:"Identifica",d:"En la vista de planta, los equipos en crítico y alerta aparecen primero. Los que están en rango seguro quedan agrupados abajo."},
+    {n:"2",t:"Abre el equipo",d:"Toca la tarjeta para ver qué variable está empujando el índice hacia arriba."},
+    {n:"3",t:"Ejecuta el protocolo",d:"Registra cada acción con tu nombre. Solo aparecen las acciones que la planta puede ejecutar hoy."},
+    {n:"4",t:"Verifica",d:"Al completar el protocolo el IRM se recalcula y el equipo vuelve a condición segura."},
+  ];
+  return(
+    <div style={{position:"fixed",inset:0,background:"rgba(13,36,64,.7)",zIndex:300,display:"flex",
+      alignItems:"center",justifyContent:"center",padding:16}} onClick={onClose}>
+      <div className="pop" style={{background:"#fff",borderRadius:18,maxWidth:400,width:"100%",overflow:"hidden",
+        boxShadow:"0 24px 60px rgba(0,0,0,.35)"}} onClick={e=>e.stopPropagation()}>
+        <div style={{background:CP.navy,padding:"17px 20px",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+          <div>
+            <div style={{fontSize:9.5,color:CP.yellow,letterSpacing:1.8,fontWeight:700}}>GUÍA RÁPIDA</div>
+            <div style={{fontSize:15.5,fontWeight:700,color:"#fff",marginTop:1}}>Cómo se opera Shield</div>
+          </div>
+          <button onClick={onClose} aria-label="Cerrar" style={{background:"rgba(255,255,255,.12)",border:"none",color:"#fff",
+            borderRadius:"50%",width:30,height:30,cursor:"pointer",fontSize:14}}>✕</button>
+        </div>
+        <div style={{padding:"18px 20px 20px"}}>
+          {pasos.map((p,i)=>(
+            <div key={i} style={{display:"flex",gap:13,marginBottom:i<pasos.length-1?15:0}}>
+              <div style={{width:30,height:30,borderRadius:9,background:CP.blueSoft,color:CP.blue,display:"flex",
+                alignItems:"center",justifyContent:"center",fontSize:13,fontWeight:800,flexShrink:0}}>{p.n}</div>
+              <div>
+                <div style={{fontSize:13,fontWeight:700,color:CP.navy}}>{p.t}</div>
+                <div style={{fontSize:11.5,color:"#5A6E85",marginTop:2,lineHeight:1.55}}>{p.d}</div>
+              </div>
+            </div>
+          ))}
+          <button onClick={onClose} style={{marginTop:18,width:"100%",padding:"12px",borderRadius:11,border:"none",
+            background:CP.navy,color:"#fff",fontSize:13,fontWeight:700,cursor:"pointer"}}>Entendido</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function CelebrationModal({equipo,irmAntes,irmAhora,onClose}){
+  const conf=[{l:"10%",d:"0s",c:CP.yellow},{l:"22%",d:".3s",c:CP.blue},{l:"35%",d:".1s",c:"#16A34A"},
+    {l:"48%",d:".45s",c:CP.yellow},{l:"62%",d:".2s",c:CP.blue},{l:"75%",d:".38s",c:"#16A34A"},{l:"88%",d:".08s",c:CP.yellow}];
+  return(
+    <div style={{position:"fixed",inset:0,background:"rgba(13,36,64,.75)",zIndex:350,display:"flex",
+      alignItems:"center",justifyContent:"center",padding:18}} onClick={onClose}>
+      <div className="pop" onClick={e=>e.stopPropagation()} style={{background:"#fff",borderRadius:20,maxWidth:380,
+        width:"100%",padding:"30px 26px 26px",textAlign:"center",position:"relative",overflow:"hidden",
+        boxShadow:"0 30px 70px rgba(0,0,0,.4)"}}>
+        {conf.map((c,i)=>(
+          <span key={i} style={{position:"absolute",top:0,left:c.l,width:8,height:12,background:c.c,borderRadius:2,
+            animation:`confettiFall 2.4s ${c.d} ease-in infinite`}}/>
+        ))}
+        <div style={{display:"flex",justifyContent:"center",marginBottom:14}}>
+          <ShieldLogo size={60} color="#16A34A" fill="#E9F9EE" stroke={5}/>
+        </div>
+        <div style={{fontSize:19,fontWeight:800,color:CP.navy}}>Equipo protegido</div>
+        <div style={{fontSize:12.5,color:"#5A6E85",marginTop:6,lineHeight:1.55}}>
+          {equipo?.codigo} vuelve a condición segura. Formas parte del equipo de prevención de Codelpa.
+        </div>
+        <div style={{display:"flex",alignItems:"center",justifyContent:"center",gap:16,margin:"18px 0 20px"}}>
+          <div><div style={{fontSize:9.5,color:CP.mute,fontWeight:700,letterSpacing:1}}>ANTES</div>
+            <div style={{fontSize:30,fontWeight:800,color:"#DC2626",lineHeight:1.1}}>{irmAntes}</div></div>
+          <div style={{fontSize:19,color:"#C3CEDB"}}>→</div>
+          <div><div style={{fontSize:9.5,color:CP.mute,fontWeight:700,letterSpacing:1}}>AHORA</div>
+            <div style={{fontSize:30,fontWeight:800,color:"#16A34A",lineHeight:1.1}}>{irmAhora}</div></div>
+        </div>
+        <button onClick={onClose} style={{width:"100%",padding:"12px",borderRadius:11,border:"none",
+          background:CP.navy,color:"#fff",fontSize:13,fontWeight:700,cursor:"pointer"}}>Continuar</button>
+      </div>
+    </div>
+  );
+}
+
+function AccionModal({accion,equipo,irmActual,onClose,onComplete}){
+  const [operador,setOperador]=useState("");
+  const [notas,setNotas]=useState("");
+  const [num,setNum]=useState("");
+  const [hecho,setHecho]=useState(false);
+  const [nuevoIRM,setNuevoIRM]=useState(null);
+  const [listo,setListo]=useState(false);
+  const pideATP=accion.tipo==="medir_atp";
+  const pidePH=accion.tipo==="medir_ph";
+  const [enviando,setEnviando]=useState(false);
+  const completar=async()=>{
+    const extra={};
+    if(pideATP&&num!=="") extra.atp=Number(num);
+    if(pidePH&&num!=="") extra.ph=Number(num);
+    setEnviando(true);
+    const r=await onComplete(equipo.id,accion.t,accion.tipo,operador,notas,extra);
+    setEnviando(false);
+    setNuevoIRM(r?.nuevoIrm??null); setListo(!!r?.todoCompletado); setHecho(true);
+  };
+  const inp={width:"100%",padding:"11px 13px",borderRadius:10,border:`1px solid ${CP.line}`,fontSize:13.5,
+    color:CP.navy,outline:"none",background:"#F8FAFC"};
+
+  if(hecho) return(
+    <div style={{position:"fixed",inset:0,background:"rgba(13,36,64,.7)",zIndex:200,display:"flex",
+      alignItems:"center",justifyContent:"center",padding:20}}>
+      <div className="pop" style={{background:"#fff",borderRadius:18,padding:"28px 26px",maxWidth:350,width:"100%",
+        textAlign:"center",boxShadow:"0 24px 60px rgba(0,0,0,.3)"}}>
+        <div style={{fontSize:16.5,fontWeight:800,color:"#16A34A"}}>{listo?"Protocolo completado":"Acción registrada"}</div>
+        <div style={{fontSize:12,color:"#5A6E85",marginTop:6,lineHeight:1.5}}>{listo?"El equipo vuelve a condición segura.":accion.t}</div>
+        {nuevoIRM!==null&&<div style={{background:"#F4FAF6",border:"1px solid #BFE6CE",borderRadius:12,
+          padding:"12px 18px",margin:"14px 0",display:"inline-flex",alignItems:"center",gap:14}}>
+          <span style={{fontSize:23,fontWeight:800,color:NC[irmActual>=80?"critico":irmActual>=65?"alto":irmActual>=40?"medio":"bajo"].bg}}>{irmActual}</span>
+          <span style={{fontSize:15,color:"#C3CEDB"}}>→</span>
+          <span style={{fontSize:23,fontWeight:800,color:NC[nuevoIRM>=80?"critico":nuevoIRM>=65?"alto":nuevoIRM>=40?"medio":"bajo"].bg}}>{nuevoIRM}</span>
+        </div>}
+        <div style={{fontSize:10.5,color:CP.mute,marginBottom:16}}>{new Date().toLocaleString("es-CL")} · {operador||"Operador sin identificar"}</div>
+        <button onClick={onClose} style={{background:CP.navy,color:"#fff",border:"none",borderRadius:11,
+          padding:"12px",fontSize:13,fontWeight:700,cursor:"pointer",width:"100%"}}>Cerrar</button>
+      </div>
+    </div>
+  );
+
+  return(
+    <div style={{position:"fixed",inset:0,background:"rgba(13,36,64,.7)",zIndex:200,display:"flex",
+      alignItems:"center",justifyContent:"center",padding:16}} onClick={onClose}>
+      <div className="pop" style={{background:"#fff",borderRadius:18,maxWidth:410,width:"100%",overflow:"hidden",
+        boxShadow:"0 24px 60px rgba(0,0,0,.35)"}} onClick={e=>e.stopPropagation()}>
+        <div style={{background:CP.navy,padding:"18px 22px 16px",display:"flex",justifyContent:"space-between",gap:12}}>
+          <div style={{minWidth:0}}>
+            <div style={{fontSize:9.5,color:CP.yellow,letterSpacing:1.8,fontWeight:700}}>REGISTRAR ACCIÓN</div>
+            <div style={{fontSize:14.5,fontWeight:700,color:"#fff",marginTop:3}}>{accion.t}</div>
+            <div style={{fontSize:11,color:"#9CB6CE",marginTop:3}}>{equipo.codigo} · IRM {irmActual}</div>
+          </div>
+          <button onClick={onClose} aria-label="Cerrar" style={{background:"rgba(255,255,255,.12)",border:"none",color:"#fff",
+            borderRadius:"50%",width:30,height:30,cursor:"pointer",fontSize:14,flexShrink:0,alignSelf:"flex-start"}}>✕</button>
+        </div>
+        <div style={{padding:"18px 22px 22px"}}>
+          {accion.mecanismo&&<div style={{marginBottom:16,background:accion.poder>0?CP.blueSoft:"#F1F5F9",
+            border:`1px solid ${accion.poder>0?CP.blue+"33":CP.line}`,borderRadius:10,padding:"10px 13px"}}>
+            <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:5}}>
+              <span style={{fontSize:9,fontWeight:700,letterSpacing:.4,padding:"2px 8px",borderRadius:6,
+                background:badgePoder(accion.poder).bg,color:badgePoder(accion.poder).fg}}>{badgePoder(accion.poder).label}</span>
+            </div>
+            <div style={{fontSize:11,color:"#33455B",lineHeight:1.55}}>{accion.mecanismo}</div>
+          </div>}
+          {(pideATP||pidePH)&&<div style={{marginBottom:14}}>
+            <label style={{fontSize:11,fontWeight:700,color:"#33455B",display:"block",marginBottom:6}}>
+              {pideATP?"Resultado ATP (RLU)":"pH medido"}
+            </label>
+            <input type="number" step={pidePH?"0.1":"1"} value={num} onChange={e=>setNum(e.target.value)}
+              placeholder={pideATP?"Ej: 95":"Ej: 8,7"} style={{...inp,fontWeight:700,fontSize:15}}/>
+            <div style={{fontSize:10,color:CP.mute,marginTop:5}}>
+              {pideATP?"< 100 óptimo · 100–499 aceptable · 500+ precaución · 2000+ crítico"
+                      :"≥ 8,5 óptimo · 8,0–8,4 vigilar · < 7,5 deterioro avanzado"}
+            </div>
+          </div>}
+          <div style={{marginBottom:14}}>
+            <label style={{fontSize:11,fontWeight:700,color:"#33455B",display:"block",marginBottom:6}}>Operador responsable</label>
+            <input value={operador} onChange={e=>setOperador(e.target.value)} placeholder="Nombre" style={inp}/>
+          </div>
+          <div style={{marginBottom:18}}>
+            <label style={{fontSize:11,fontWeight:700,color:"#33455B",display:"block",marginBottom:6}}>Observaciones</label>
+            <textarea rows={3} value={notas} onChange={e=>setNotas(e.target.value)}
+              placeholder="Producto usado, condiciones observadas…" style={{...inp,fontSize:12.5,resize:"vertical"}}/>
+          </div>
+          <div style={{display:"flex",gap:9}}>
+            <button onClick={onClose} style={{flex:1,padding:"12px",borderRadius:11,border:`1px solid ${CP.line}`,
+              background:"#fff",color:"#5A6E85",fontSize:12.5,fontWeight:600,cursor:"pointer"}}>Cancelar</button>
+            <button onClick={completar} disabled={enviando} style={{flex:2,padding:"12px",borderRadius:11,border:"none",
+              background:enviando?"#5A6E85":CP.navy,color:"#fff",fontSize:13,fontWeight:700,
+              cursor:enviando?"wait":"pointer"}}>{enviando?"Registrando…":"Registrar acción"}</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function AmbienteModal({ambiente,cfg,onClose,onGuardar}){
+  const [temp,setTemp]=useState(ambiente?.temp??"");
+  const [humedad,setHumedad]=useState(ambiente?.humedad??"");
+  const [nombre,setNombre]=useState("");
+  const [enviando,setEnviando]=useState(false);
+  const [err,setErr]=useState("");
+  const inp={width:"100%",padding:"11px 13px",borderRadius:10,border:`1px solid ${CP.line}`,fontSize:15,
+    fontWeight:700,color:CP.navy,outline:"none",background:"#F8FAFC",textAlign:"center"};
+  const guardar=async()=>{
+    if(temp===""||humedad===""){ setErr("Completa temperatura y humedad."); return; }
+    if(!nombre.trim()){ setErr("Escribe quién midió."); return; }
+    setEnviando(true);
+    const r=await onGuardar(Number(temp),Number(humedad),nombre.trim());
+    setEnviando(false);
+    if(r&&r.ok===false) setErr(r.error||"No se pudo guardar."); else onClose();
+  };
+  const previa=factorAmbientalDe({temp:Number(temp)||null,humedad:Number(humedad)||null},cfg);
+  return(
+    <div style={{position:"fixed",inset:0,background:"rgba(13,36,64,.7)",zIndex:210,display:"flex",
+      alignItems:"center",justifyContent:"center",padding:16}} onClick={onClose}>
+      <div className="pop" style={{background:"#fff",borderRadius:18,maxWidth:380,width:"100%",overflow:"hidden",
+        boxShadow:"0 24px 60px rgba(0,0,0,.35)"}} onClick={e=>e.stopPropagation()}>
+        <div style={{background:CP.navy,padding:"18px 22px 16px",display:"flex",justifyContent:"space-between",gap:12}}>
+          <div>
+            <div style={{fontSize:9.5,color:CP.yellow,letterSpacing:1.8,fontWeight:700}}>AMBIENTE DE PLANTA</div>
+            <div style={{fontSize:14.5,fontWeight:700,color:"#fff",marginTop:3}}>Actualizar lectura</div>
+          </div>
+          <button onClick={onClose} aria-label="Cerrar" style={{background:"rgba(255,255,255,.12)",border:"none",color:"#fff",
+            borderRadius:"50%",width:30,height:30,cursor:"pointer",fontSize:14,flexShrink:0}}>✕</button>
+        </div>
+        <div style={{padding:"18px 22px 22px"}}>
+          <div style={{display:"flex",gap:12,marginBottom:14}}>
+            <div style={{flex:1}}>
+              <label style={{fontSize:11,fontWeight:700,color:"#33455B",display:"block",marginBottom:6}}>Temperatura (°C)</label>
+              <input type="number" step="0.5" value={temp} onChange={e=>setTemp(e.target.value)} placeholder="24" style={inp}/>
+            </div>
+            <div style={{flex:1}}>
+              <label style={{fontSize:11,fontWeight:700,color:"#33455B",display:"block",marginBottom:6}}>Humedad (% HR)</label>
+              <input type="number" step="1" value={humedad} onChange={e=>setHumedad(e.target.value)} placeholder="55" style={inp}/>
+            </div>
+          </div>
+          {temp!==""&&humedad!==""&&<div style={{background:CP.blueSoft,border:`1px solid ${CP.blue}33`,borderRadius:9,
+            padding:"8px 12px",marginBottom:14,fontSize:11,color:"#125A93",fontWeight:600}}>
+            Acelera las variables de tiempo ×{previa.factorTotal.toFixed(2)}
+            {" "}(temp ×{previa.factorTemp.toFixed(2)} · humedad ×{previa.factorHum.toFixed(2)})
+          </div>}
+          <div style={{marginBottom:16}}>
+            <label style={{fontSize:11,fontWeight:700,color:"#33455B",display:"block",marginBottom:6}}>Quién midió</label>
+            <input value={nombre} onChange={e=>setNombre(e.target.value)} placeholder="Nombre"
+              style={{width:"100%",padding:"11px 13px",borderRadius:10,border:`1px solid ${CP.line}`,fontSize:13,
+                color:CP.navy,outline:"none",background:"#F8FAFC"}}/>
+          </div>
+          {err&&<div style={{fontSize:11,color:"#DC2626",marginBottom:12,fontWeight:600}}>{err}</div>}
+          <div style={{display:"flex",gap:9}}>
+            <button onClick={onClose} style={{flex:1,padding:"12px",borderRadius:11,border:`1px solid ${CP.line}`,
+              background:"#fff",color:"#5A6E85",fontSize:12.5,fontWeight:600,cursor:"pointer"}}>Cancelar</button>
+            <button onClick={guardar} disabled={enviando} style={{flex:2,padding:"12px",borderRadius:11,border:"none",
+              background:enviando?"#5A6E85":CP.navy,color:"#fff",fontSize:13,fontWeight:700,
+              cursor:enviando?"wait":"pointer"}}>{enviando?"Guardando…":"Guardar lectura"}</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════
+   VISTA 1 · PANEL DE PLANTA (entrada del sistema)
+   ═══════════════════════════════════════════════════════════ */
+function Panel({equipos,cfg,conexion,ambiente,onEntrar,onGuia,onConfig,onAmbiente}){
+  const vivos=equipos.filter(e=>e.nivel!=="inhabilitado"&&e.irm!==null);
+  const irmP=vivos.length?Math.round(vivos.reduce((s,e)=>s+e.irm,0)/vivos.length):null;
+  const c=cfg.cortes;
+  const nP=irmP===null?"inhabilitado":irmP>=c.critico?"critico":irmP>=c.alto?"alto":irmP>=c.medio?"medio":"bajo";
+  const cuenta=k=>equipos.filter(e=>e.nivel===k).length;
+  const rojos=cuenta("critico"), altos=cuenta("alto"), medios=cuenta("medio");
+  const bajos=equipos.filter(e=>e.nivel==="bajo"||e.nivel==="inhabilitado").length;
+  const [hov,setHov]=useState(false);
+  const [hovG,setHovG]=useState(false);
+  const nActivas=cfg.variables.filter(v=>v.activa).length;
+
+  return(
+    <div style={{minHeight:"100vh",background:CP.bg,display:"flex",flexDirection:"column"}}>
+      <div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",gap:14,padding:"16px 18px 0"}}>
+        <LogoCP size={34}/>
+        <button onClick={onConfig} onMouseEnter={()=>setHovG(true)} onMouseLeave={()=>setHovG(false)}
+          title="Configuración del algoritmo IRM"
+          style={{display:"flex",alignItems:"center",gap:10,background:"#fff",border:`1px solid ${hovG?CP.navy:CP.line}`,
+            borderRadius:14,padding:"8px 14px 8px 9px",cursor:"pointer",
+            boxShadow:hovG?"0 6px 18px rgba(13,36,64,.14)":"0 1px 3px rgba(13,36,64,.06)",transition:"all .15s"}}>
+          <span style={{width:40,height:40,borderRadius:11,background:CP.navy,color:CP.yellow,display:"flex",
+            alignItems:"center",justifyContent:"center",flexShrink:0}}>
+            <span style={{display:"flex",animation:hovG?"spinSlow 5s linear infinite":"none"}}><Engranaje size={23}/></span>
+          </span>
+          <span style={{textAlign:"left"}}>
+            <span style={{display:"block",fontSize:12.5,fontWeight:700,color:CP.navy,lineHeight:1.25}}>Configuración<br/>de algoritmo</span>
+          </span>
+        </button>
+      </div>
+
+      <div style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",
+        padding:"18px 20px 30px",textAlign:"center"}}>
+        <div style={{fontSize:20,fontWeight:800,color:CP.navy,letterSpacing:-.4}}>Proyecto Shield</div>
+        <div style={{fontSize:11.5,color:CP.blue,fontWeight:600,marginTop:2}}>Protección microbiológica predictiva</div>
+
+        <div style={{marginTop:14,marginBottom:16}}><EscalaIRM/></div>
+
+        {(rojos>0||altos>0)&&<div style={{background:rojos>0?NC.critico.soft:NC.alto.soft,
+          border:`1px solid ${rojos>0?NC.critico.bg+"55":NC.alto.bg+"55"}`,borderRadius:12,padding:"10px 18px",
+          marginBottom:20,display:"flex",alignItems:"center",gap:11,maxWidth:400,width:"100%"}}>
+          <Punto c={rojos>0?NC.critico.bg:NC.alto.bg} size={10} glow/>
+          <div style={{textAlign:"left"}}>
+            <div style={{fontWeight:700,color:rojos>0?NC.critico.bg:NC.alto.bg,fontSize:12.5}}>
+              {rojos>0?"Requiere acción inmediata":"Monitoreo aumentado"}</div>
+            <div style={{fontSize:11,color:rojos>0?NC.critico.txt:NC.alto.txt}}>
+              {rojos>0?`${rojos} equipo(s) en crítico`:`${altos} equipo(s) en alerta`}</div>
+          </div>
+        </div>}
+
+        <button onClick={onEntrar} onMouseEnter={()=>setHov(true)} onMouseLeave={()=>setHov(false)}
+          aria-label="Ver el estado de la planta"
+          style={{background:"none",border:"none",cursor:"pointer",padding:0,position:"relative",
+            transform:hov?"translateY(-3px)":"none",transition:"transform .18s"}}>
+          {/* halo que se expande con cada latido, detrás del escudo */}
+          <span className="latido-halo" aria-hidden="true" style={{position:"absolute",left:"50%",top:"50%",
+            width:210,height:210,marginLeft:-105,marginTop:-105,borderRadius:"50%",
+            background:`radial-gradient(circle, ${NC[nP].bg}55 0%, ${NC[nP].bg}00 68%)`,pointerEvents:"none"}}/>
+          <span className="latido" style={{display:"block",position:"relative",
+            filter:`drop-shadow(0 16px 30px ${NC[nP].bg}4D)`}}>
+            <svg width="212" height="238" viewBox="0 0 100 112" style={{display:"block"}}>
+              <defs><linearGradient id="shg" x1="0" y1="0" x2="1" y2="1">
+                <stop offset="0%" stopColor={CP.navy}/><stop offset="100%" stopColor={CP.blue}/></linearGradient></defs>
+              <path d="M50 4 L92 19 V52 C92 82 50 108 50 108 C50 108 8 82 8 52 V19 Z"
+                fill="url(#shg)" stroke={NC[nP].bg} strokeWidth="4" strokeLinejoin="round"/>
+              <text x="50" y="35" textAnchor="middle" fontSize="7.5" fontWeight="600" fill={CP.yellow} letterSpacing="2">ÍNDICE</text>
+              <text x="50" y="66" textAnchor="middle" fontSize="31" fontWeight="800" fill={NC[nP].bg}>{irmP===null?"—":irmP}</text>
+              <text x="50" y="79" textAnchor="middle" fontSize="6.5" fontWeight="600" fill="#9CB6CE">IRM PLANTA</text>
+              <text x="50" y="94" textAnchor="middle" fontSize="6.2" fontWeight="700" fill={CP.yellow}>VER ESTADO ▸</text>
+            </svg>
+          </span>
+        </button>
+
+        <div style={{display:"flex",gap:8,flexWrap:"wrap",justifyContent:"center",marginTop:18}}>
+          <div style={{background:"#fff",border:`1px solid ${CP.line}`,borderRadius:12,padding:"9px 14px",
+            display:"flex",alignItems:"center",gap:11}}>
+            <Semaforo nivel={nP} size="md"/>
+            <div style={{textAlign:"left"}}>
+              <div style={{fontSize:9,color:CP.mute,fontWeight:700,letterSpacing:1}}>NIVEL DE PLANTA</div>
+              <div style={{fontSize:13.5,fontWeight:800,color:NC[nP].bg}}>{NC[nP].label}</div>
+              <div style={{fontSize:9.5,color:CP.mute}}>{equipos.length} equipos · {AREAS.length} áreas</div>
+            </div>
+          </div>
+          {[{n:rojos,l:"Críticos",c:NC.critico.bg},{n:altos,l:"Alertas",c:NC.alto.bg},
+            {n:medios,l:"Precaución",c:NC.medio.bg},{n:bajos,l:"Óptimos",c:NC.bajo.bg}].map((s,i)=>(
+            <div key={i} style={{background:"#fff",border:`1px solid ${CP.line}`,borderRadius:12,padding:"9px 14px",
+              textAlign:"center",minWidth:64}}>
+              <div style={{fontSize:21,fontWeight:800,color:s.c,lineHeight:1}}>{s.n}</div>
+              <div style={{fontSize:9.5,color:CP.mute,fontWeight:600,marginTop:2}}>{s.l}</div>
+            </div>
+          ))}
+        </div>
+
+        <div style={{marginTop:16}}>
+          <AmbienteChip ambiente={ambiente} cfg={cfg} onClick={onAmbiente}/>
+          {ambiente?.actualizado&&<div style={{fontSize:9.5,color:CP.mute,marginTop:5}}>
+            Actualizado {ambiente.actualizado}{ambiente.por?` · ${ambiente.por}`:""}</div>}
+        </div>
+
+        <div style={{display:"flex",gap:10,marginTop:14,alignItems:"center",flexWrap:"wrap",justifyContent:"center"}}>
+          <BarraConfianza cfg={cfg} compacto/>
+          <span style={{fontSize:10.5,color:CP.mute}}>{nActivas} de {cfg.variables.length} variables activas</span>
+          <button onClick={onGuia} style={{background:"none",border:"none",color:CP.blue,fontSize:11.5,
+            fontWeight:700,cursor:"pointer",textDecoration:"underline"}}>Guía rápida</button>
+        </div>
+
+        <div style={{marginTop:14}}><Conexion estado={conexion}/></div>
+        <div style={{marginTop:8,fontSize:10,color:CP.mute}}>
+          Abraham Duarte (I+D) · José Osorio (Optimización de Procesos)
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════
+   VISTA SECTOR · pantalla de operador (artefacto hijo)
+   ───────────────────────────────────────────────────────────
+   Deliberadamente más simple que la vista de planta: sin buscador,
+   sin selector de área, sin contadores globales. En una pantalla de
+   sector los números de toda la planta confunden — el operador solo
+   necesita ver SUS equipos y qué hacer con ellos. Tiles grandes,
+   pensados para leerse a distancia en un monitor montado en pared.
+   ═══════════════════════════════════════════════════════════ */
+function VistaSector({equipos,cfg,area,ambiente,conexion,onSelectEquipo}){
+  const mios=useMemo(()=>{
+    const l=equipos.filter(e=>e.area===area);
+    const rank={critico:0,alto:1,medio:2,sinmodelo:3,bajo:4,piloto_fuera:5,inhabilitado:6};
+    return [...l].sort((a,b)=>(rank[a.nivel]-rank[b.nivel])||((b.irm??-1)-(a.irm??-1)));
+  },[equipos,area]);
+
+  const n=k=>mios.filter(e=>e.nivel===k).length;
+  const criticos=n("critico"), altos=n("alto"), medios=n("medio");
+  const atender=criticos+altos+medios;
+  const responsable=mios[0]?.responsable||"";
+
+  const estado = criticos>0
+    ? {c:NC.critico, t:`${criticos} equipo${criticos>1?"s":""} requiere${criticos>1?"n":""} acción inmediata`,
+       d:"Toca el equipo para ver el protocolo de sanitización."}
+    : altos>0
+    ? {c:NC.alto, t:`${altos} equipo${altos>1?"s":""} en alerta`,
+       d:"Aplica el protocolo antes de que escale a crítico."}
+    : medios>0
+    ? {c:NC.medio, t:`${medios} equipo${medios>1?"s":""} en precaución`,
+       d:"Dosificación preventiva recomendada en el turno."}
+    : {c:NC.bajo, t:`Los ${mios.length} equipos operan en condición segura`,
+       d:"Sin acciones requeridas. Mantén el registro al día."};
+
+  return(
+    <div style={{minHeight:"100vh",background:CP.bg,display:"flex",flexDirection:"column"}}>
+      <div style={{background:CP.navy,padding:"14px 20px",display:"flex",alignItems:"center",gap:16,flexWrap:"wrap"}}>
+        <LogoCP size={28}/>
+        <div style={{flex:1,minWidth:0}}>
+          <div style={{fontSize:9.5,color:CP.yellow,letterSpacing:2,fontWeight:700}}>PROYECTO SHIELD · SECTOR</div>
+          <div style={{fontSize:21,fontWeight:800,color:"#fff",lineHeight:1.15,marginTop:1}}>{area}</div>
+          <div style={{fontSize:11,color:"#9CB6CE",marginTop:2}}>
+            {mios.length} equipo{mios.length!==1?"s":""}{responsable?` · ${responsable}`:""}
+          </div>
+        </div>
+        <div style={{display:"flex",flexDirection:"column",alignItems:"flex-end",gap:6}}>
+          <AmbienteChip ambiente={ambiente} cfg={cfg} onClick={null} compacto/>
+          <Conexion estado={conexion}/>
+        </div>
+      </div>
+
+      <div style={{background:estado.c.soft,borderBottom:`1px solid ${estado.c.bg}44`,padding:"14px 20px",
+        display:"flex",alignItems:"center",gap:14}}>
+        <Punto c={estado.c.bg} size={14} glow/>
+        <div>
+          <div style={{fontSize:16,fontWeight:800,color:estado.c.bg,lineHeight:1.25}}>{estado.t}</div>
+          <div style={{fontSize:12,color:estado.c.txt,marginTop:2}}>{estado.d}</div>
+        </div>
+      </div>
+
+      <div style={{padding:"18px 20px",flex:1}}>
+        <div style={{display:"grid",gap:14,gridTemplateColumns:"repeat(auto-fill,minmax(158px,1fr))"}}>
+          {mios.map(eq=>{
+            const c=NC[eq.nivel]||NC.inhabilitado;
+            const urg=eq.nivel==="critico"||eq.nivel==="alto";
+            const sinModelo=eq.irm===null;
+            const simbolo=eq.nivel==="inhabilitado"?"—":eq.nivel==="piloto_fuera"?"❄":"?";
+            return(
+              <div key={eq.id} role="button" tabIndex={0} onClick={()=>onSelectEquipo(eq)}
+                onKeyDown={e=>{if(e.key==="Enter"||e.key===" "){e.preventDefault();onSelectEquipo(eq);}}}
+                style={{background:"#fff",border:`1px solid ${urg?c.bg:CP.line}`,borderTop:`4px solid ${urg?c.bg:"transparent"}`,
+                  borderRadius:16,padding:"16px 10px 14px",cursor:"pointer",textAlign:"center",
+                  boxShadow:urg?`0 6px 18px ${c.bg}22`:"0 1px 3px rgba(13,36,64,.06)"}}>
+                <EquipoSVG fig={figuraDe(eq)} fill={sinModelo?"#CBD5E1":c.bg} stroke={sinModelo?"#64748B":c.txt}
+                  valor={sinModelo?simbolo:eq.irm} size={92}/>
+                <div style={{fontSize:13,fontWeight:800,color:CP.navy,marginTop:9,lineHeight:1.25}}>{eq.codigo}</div>
+                <div style={{fontSize:10,fontWeight:700,color:c.bg,letterSpacing:.5,marginTop:3}}>{c.label}</div>
+              </div>
+            );
+          })}
+        </div>
+        {mios.length===0&&<div style={{background:"#fff",border:`1px solid ${CP.line}`,borderRadius:14,
+          padding:"28px 20px",textAlign:"center"}}>
+          <div style={{fontSize:14,fontWeight:700,color:CP.navy}}>Sin equipos en este sector</div>
+          <div style={{fontSize:12,color:CP.mute,marginTop:5}}>
+            Revisa que el nombre del área en el archivo del sector coincida con los del sistema.</div>
+        </div>}
+      </div>
+
+      <div style={{padding:"0 20px 18px",fontSize:10.5,color:CP.mute,textAlign:"center"}}>
+        {atender>0
+          ? "Al completar el protocolo el equipo vuelve a condición segura y queda registrado en la planta."
+          : "El estado se actualiza solo. Registra las limpiezas que realices para mantener el índice al día."}
+      </div>
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════
+   VISTA 2 · PLANTA
+   ═══════════════════════════════════════════════════════════ */
+function General({equipos,cfg,onSelectEquipo,onBack,areaFija=null,conexion=null,ambiente=null,onAmbiente}){
+  const [af,setAf]=useState(areaFija||"TODAS");
+  const [bq,setBq]=useState("");
+  const [ord,setOrd]=useState("prioridad");
+  const [filtroNivel,setFiltroNivel]=useState(null);
+  const [verSeguros,setVerSeguros]=useState(false);
+  const [verFueraPiloto,setVerFueraPiloto]=useState(false);
+  const [modo,setModo]=useState("planta");
+
+  const filtrados=useMemo(()=>{
+    let l=af==="TODAS"?equipos:equipos.filter(e=>e.area===af);
+    if(filtroNivel) l=l.filter(e=>e.nivel===filtroNivel);
+    if(bq){const q=bq.toLowerCase();
+      l=l.filter(e=>e.codigo.toLowerCase().includes(q)||e.area.toLowerCase().includes(q)||(e.responsable||"").toLowerCase().includes(q));}
+    if(ord==="prioridad") l=[...l].sort((a,b)=>
+      NIVELES_ORD.indexOf(a.nivel)-NIVELES_ORD.indexOf(b.nivel) || (b.irm??-1)-(a.irm??-1));
+    else if(ord==="irm") l=[...l].sort((a,b)=>(b.irm??-1)-(a.irm??-1));
+    else if(ord==="nombre") l=[...l].sort((a,b)=>a.codigo.localeCompare(b.codigo));
+    else l=[...l].sort((a,b)=>a.area.localeCompare(b.area)||a.codigo.localeCompare(b.codigo));
+    return l;
+  },[equipos,af,bq,ord,filtroNivel]);
+
+  const resA=AREAS.map(a=>{const e=equipos.filter(x=>x.area===a);
+    const w=e.reduce((m,x)=>((x.irm??0)>(m.irm??0)?x:m),e[0]);return{area:a,count:e.length,worst:w?.nivel||"bajo"};});
+  const cuenta=k=>equipos.filter(e=>e.nivel===k).length;
+  const chips=[{k:null,l:"Todos",n:equipos.length,c:CP.navy},
+    {k:"critico",l:"Críticos",n:cuenta("critico"),c:NC.critico.bg},
+    {k:"alto",l:"Alertas",n:cuenta("alto"),c:NC.alto.bg},
+    {k:"medio",l:"Precaución",n:cuenta("medio"),c:NC.medio.bg},
+    {k:"bajo",l:"Óptimos",n:cuenta("bajo"),c:NC.bajo.bg}];
+
+  const agrupar=af==="TODAS"&&!bq&&!filtroNivel;
+  const enRiesgo=agrupar?filtrados.filter(e=>["critico","alto","medio","sinmodelo"].includes(e.nivel)):filtrados;
+  const seguros=agrupar?filtrados.filter(e=>e.nivel==="bajo"||e.nivel==="inhabilitado"):[];
+  const fueraPiloto=agrupar?filtrados.filter(e=>e.nivel==="piloto_fuera"):[];
+
+  const grid=(items)=>(
+    <div style={{display:"grid",gap:modo==="planta"?9:8,
+      gridTemplateColumns:modo==="planta"?"repeat(auto-fill,minmax(106px,1fr))":"repeat(auto-fill,minmax(290px,1fr))"}}>
+      {items.map(eq=>modo==="planta"
+        ?<EquipoTile key={eq.id} eq={eq} onClick={()=>onSelectEquipo(eq)}/>
+        :<EquipoCard key={eq.id} eq={eq} onClick={()=>onSelectEquipo(eq)}/>)}
+    </div>
+  );
+  const ctrl={padding:"9px 11px",borderRadius:10,border:`1px solid ${CP.line}`,background:"#fff",
+    fontSize:12.5,color:CP.navy,outline:"none"};
+
+  return(
+    <div style={{minHeight:"100vh",background:CP.bg}}>
+      <Topbar titulo={areaFija?`Sector · ${areaFija}`:"Planta"}
+        sub={areaFija?`${equipos.filter(e=>e.area===areaFija).length} equipos · vista de operador`:`${equipos.length} equipos · ${AREAS.length} áreas`}
+        onBack={areaFija?null:onBack} backLabel="Panel"
+        derecha={<div style={{display:"flex",alignItems:"center",gap:10}}>
+          <div style={{display:"flex",background:"rgba(255,255,255,.09)",borderRadius:9,padding:3,gap:2,flexShrink:0}}>
+            {[{k:"planta",l:"Planta"},{k:"lista",l:"Lista"}].map(m=>(
+              <button key={m.k} onClick={()=>setModo(m.k)} style={{padding:"5px 11px",fontSize:11,fontWeight:700,
+                borderRadius:7,cursor:"pointer",border:"none",background:modo===m.k?"#fff":"transparent",
+                color:modo===m.k?CP.navy:"#9CB6CE"}}>{m.l}</button>))}
+          </div>
+        </div>}/>
+
+      <div style={{background:"#fff",borderBottom:`1px solid ${CP.line}`,padding:"8px 14px",display:"flex",
+        alignItems:"center",justifyContent:"space-between",gap:10,flexWrap:"wrap"}}>
+        {/* En vista de sector la lectura ambiental es de solo lectura: es un dato de planta,
+            y 12 tablets escribiéndolo generaría conflictos. Se edita desde el panel general. */}
+        <AmbienteChip ambiente={ambiente} cfg={cfg} onClick={areaFija?null:onAmbiente} compacto/>
+        {areaFija&&<Conexion estado={conexion}/>}
+      </div>
+
+      <div style={{background:"#fff",borderBottom:`1px solid ${CP.line}`,padding:"10px 14px"}}>
+        <div style={{display:"flex",gap:7,overflowX:"auto",paddingBottom:2}}>
+          {chips.map(ch=>{const on=filtroNivel===ch.k;return(
+            <button key={String(ch.k)} onClick={()=>setFiltroNivel(ch.k)}
+              style={{flexShrink:0,display:"flex",alignItems:"center",gap:7,padding:"6px 13px",borderRadius:10,
+                cursor:"pointer",border:`1px solid ${on?ch.c:CP.line}`,background:on?ch.c+"12":"#fff",
+                transition:"all .12s"}}>
+              {ch.k&&<Punto c={ch.c} size={7}/>}
+              <span style={{fontSize:11.5,fontWeight:on?800:600,color:on?ch.c:"#5A6E85"}}>{ch.l}</span>
+              <span style={{fontSize:11.5,fontWeight:800,color:on?ch.c:CP.navy}}>{ch.n}</span>
+            </button>);})}
+        </div>
+      </div>
+
+      <div style={{padding:"12px 14px 0"}}>
+        <div style={{display:"flex",gap:8,marginBottom:9,flexWrap:"wrap"}}>
+          <input value={bq} onChange={e=>setBq(e.target.value)} placeholder="Buscar equipo, área o responsable"
+            style={{...ctrl,flex:1,minWidth:190}}/>
+          {areaFija
+            ?<div style={{...ctrl,display:"flex",alignItems:"center",gap:7,color:"#5A6E85",fontWeight:600}}>
+              <Punto c={CP.blue} size={7}/>{areaFija} — vista fija de sector
+            </div>
+            :<select value={af} onChange={e=>setAf(e.target.value)} style={{...ctrl,cursor:"pointer",maxWidth:200}}>
+              <option value="TODAS">Todas las áreas ({equipos.length})</option>
+              {resA.map(r=>{
+                const imp=IMPORTANCIA_AREA[importanciaDe(r.area,cfg)];
+                return <option key={r.area} value={r.area}>{r.area} ({r.count}){imp.label!=="Media"?` · ${imp.label}`:""}</option>;
+              })}
+            </select>}
+          <select value={ord} onChange={e=>setOrd(e.target.value)} style={{...ctrl,cursor:"pointer"}}>
+            <option value="prioridad">Prioridad de atención</option>
+            <option value="irm">IRM más alto</option>
+            <option value="nombre">Nombre A → Z</option>
+            <option value="area">Por área</option>
+          </select>
+        </div>
+      </div>
+
+      <div style={{padding:"4px 14px 34px"}}>
+        {agrupar?<>
+          {enRiesgo.length>0?<div style={{marginBottom:14}}>
+            <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:9}}>
+              <span style={{fontSize:11.5,fontWeight:800,color:CP.navy,letterSpacing:.3}}>Requieren atención</span>
+              <span style={{fontSize:11,color:CP.mute}}>{enRiesgo.length}</span>
+              <div style={{flex:1,height:1,background:CP.line}}/>
+            </div>
+            {grid(enRiesgo)}
+          </div>:
+          <div style={{background:NC.bajo.soft,border:`1px solid ${NC.bajo.bg}44`,borderRadius:14,
+            padding:"18px 20px",marginBottom:14,textAlign:"center"}}>
+            <div style={{fontSize:14,fontWeight:800,color:NC.bajo.bg}}>Sin equipos en riesgo</div>
+            <div style={{fontSize:11.5,color:NC.bajo.txt,marginTop:3}}>Toda la planta opera en condición segura</div>
+          </div>}
+
+          <div style={{background:"#fff",borderRadius:14,overflow:"hidden",border:`1px solid ${CP.line}`}}>
+            <button onClick={()=>setVerSeguros(v=>!v)} style={{width:"100%",display:"flex",alignItems:"center",
+              gap:12,padding:"13px 16px",background:"#fff",border:"none",cursor:"pointer"}}>
+              <Punto c={NC.bajo.bg} size={10} glow/>
+              <div style={{flex:1,textAlign:"left"}}>
+                <div style={{fontSize:12.5,fontWeight:700,color:CP.navy}}>{seguros.length} equipos en estado óptimo</div>
+                <div style={{fontSize:10.5,color:CP.mute}}>Operación normal, sin acciones requeridas</div>
+              </div>
+              <span style={{fontSize:11,color:CP.mute,fontWeight:700}}>{verSeguros?"Ocultar ▲":"Ver ▼"}</span>
+            </button>
+            {verSeguros&&<div style={{padding:"4px 12px 14px",borderTop:`1px solid ${CP.line}`}}>{grid(seguros)}</div>}
+          </div>
+
+          {fueraPiloto.length>0&&<div style={{background:"#fff",borderRadius:14,overflow:"hidden",
+            border:`1px dashed ${CP.line}`,marginTop:10}}>
+            <button onClick={()=>setVerFueraPiloto(v=>!v)} style={{width:"100%",display:"flex",alignItems:"center",
+              gap:12,padding:"13px 16px",background:"#F8FAFC",border:"none",cursor:"pointer"}}>
+              <span style={{fontSize:16}}>❄️</span>
+              <div style={{flex:1,textAlign:"left"}}>
+                <div style={{fontSize:12.5,fontWeight:700,color:"#475569"}}>{fueraPiloto.length} equipos fuera del piloto</div>
+                <div style={{fontSize:10.5,color:CP.mute}}>No están dentro del alcance activo — no se están midiendo</div>
+              </div>
+              <span style={{fontSize:11,color:CP.mute,fontWeight:700}}>{verFueraPiloto?"Ocultar ▲":"Ver ▼"}</span>
+            </button>
+            {verFueraPiloto&&<div style={{padding:"4px 12px 14px",borderTop:`1px solid ${CP.line}`}}>{grid(fueraPiloto)}</div>}
+          </div>}
+        </>:<>
+          {filtrados.length===0
+            ?<div style={{background:"#fff",border:`1px solid ${CP.line}`,borderRadius:14,padding:"26px 20px",textAlign:"center"}}>
+              <div style={{fontSize:13,fontWeight:700,color:CP.navy}}>Ningún equipo coincide</div>
+              <div style={{fontSize:11.5,color:CP.mute,marginTop:4}}>Cambia el área, el nivel o el texto de búsqueda.</div>
+            </div>
+            :grid(filtrados)}
+        </>}
+      </div>
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════
+   VISTA 3 · DETALLE DE EQUIPO
+   ═══════════════════════════════════════════════════════════ */
+function FactorFila({d}){
+  const color=d.r<35?NC.bajo.bg:d.r<65?NC.medio.bg:d.r<85?NC.alto.bg:NC.critico.bg;
+  return(
+    <div style={{marginBottom:11}}>
+      <div style={{display:"flex",justifyContent:"space-between",gap:10,fontSize:11.5,marginBottom:4}}>
+        <span style={{fontWeight:600,color:"#33455B",minWidth:0}}>
+          {d.nombre} <span style={{color:CP.mute,fontWeight:500}}>· {d.pesoEf} %</span>
+        </span>
+        <span style={{color,fontWeight:700,whiteSpace:"nowrap",flexShrink:0}}>
+          {d.r} <span style={{color:CP.mute,fontWeight:500}}>· {d.sinDato?"sin dato":d.txt}</span>
+        </span>
+      </div>
+      <BarraEscala v={d.r} c={color}/>
+      {d.acelerado&&d.factorT!==1&&<div style={{fontSize:9.5,color:CP.blue,marginTop:3,fontWeight:600}}>
+        🌡️ {d.valor} días reales × {d.factorT.toFixed(2)} por temperatura = {d.valorEfectivo} días efectivos
+      </div>}
+    </div>
+  );
+}
+function EquipoDetalle({eq,cfg,planNivel,completadas,onBack,onAccion,ambiente,backLabel="Planta"}){
+  const c=NC[eq.nivel]||NC.inhabilitado;
+  const accs=accionesDe(planNivel,cfg);
+  const done=completadas[eq.id]||{};
+  const todas=accs.length>0&&planNivel!=="bajo"&&accs.every(a=>done[a.t]);
+  const sinDatos=(eq.detalle||[]).filter(d=>d.sinDato);
+  return(
+    <div style={{minHeight:"100vh",background:CP.bg}}>
+      <Topbar titulo={eq.codigo} sub={`${eq.area} · ${eq.tipo}`} onBack={onBack} backLabel={backLabel}/>
+
+      <div style={{background:"#fff",margin:"12px 14px",borderRadius:16,overflow:"hidden",border:`1px solid ${CP.line}`}}>
+        <div style={{background:CP.navy,padding:"17px 18px"}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:14}}>
+            <div style={{minWidth:0}}>
+              <div style={{fontSize:9.5,color:CP.yellow,letterSpacing:1.8,fontWeight:700}}>{eq.area}</div>
+              <div style={{fontSize:18,fontWeight:800,color:"#fff",marginTop:3}}>{eq.codigo}</div>
+              <div style={{fontSize:11.5,color:"#9CB6CE",marginTop:3}}>Responsable: {eq.responsable}</div>
+              <div style={{marginTop:11,display:"flex",alignItems:"center",gap:7,flexWrap:"wrap"}}>
+                <div style={{display:"inline-flex",alignItems:"center",gap:8,background:c.bg+"2E",
+                  border:`1px solid ${c.bg}66`,borderRadius:18,padding:"4px 13px"}}>
+                  <Punto c={c.bg} size={7}/>
+                  <span style={{fontSize:11,fontWeight:700,color:c.bg==="#16A34A"?"#7EE2A8":c.bg}}>{c.label} · IRM {c.tag}</span>
+                </div>
+                {(()=>{const imp=IMPORTANCIA_AREA[importanciaDe(eq.area,cfg)];
+                  return imp.label!=="Media"&&<div title={imp.d} style={{fontSize:10,fontWeight:700,color:imp.c,
+                    background:imp.c+"22",border:`1px solid ${imp.c}66`,borderRadius:14,padding:"4px 11px"}}>
+                    Área {imp.label}</div>;})()}
+              </div>
+            </div>
+            <div style={{display:"flex",flexDirection:"column",alignItems:"center",gap:9,flexShrink:0}}>
+              <div style={{textAlign:"center"}}>
+                <div style={{fontSize:40,fontWeight:800,color:c.bg,lineHeight:1}}>{eq.irm===null?"—":eq.irm}</div>
+                <div style={{fontSize:9,color:"#9CB6CE",fontWeight:600,letterSpacing:1}}>IRM</div>
+              </div>
+              <Semaforo nivel={eq.nivel} size="md"/>
+            </div>
+          </div>
+          {todas&&<div style={{marginTop:11,background:"rgba(22,163,74,.24)",border:"1px solid #16A34A",
+            borderRadius:10,padding:"8px 13px",fontSize:11.5,fontWeight:700,color:"#8FE9B4"}}>
+            Protocolo completado · equipo restaurado a condición segura</div>}
+        </div>
+        <div style={{padding:"12px 18px",display:"flex",gap:22,flexWrap:"wrap"}}>
+          {[["ÚLTIMA SANITIZACIÓN",eq.ultima_san],
+            ["AMBIENTE DE PLANTA",`${ambiente?.temp??"—"} °C · ${ambiente?.humedad??"—"}% HR`],
+            ["DÍAS DETENIDO",eq.dias_det+" día(s)"],["pH REMANENTE",eq.ph??"—"]].map(([l,v],i)=>(
+            <div key={i}>
+              <div style={{fontSize:8.5,color:CP.mute,fontWeight:700,letterSpacing:1}}>{l}</div>
+              <div style={{fontSize:13,fontWeight:700,color:CP.navy,marginTop:2}}>{v}</div>
+            </div>))}
+          {eq.notas&&<div>
+            <div style={{fontSize:8.5,color:CP.mute,fontWeight:700,letterSpacing:1}}>NOTAS</div>
+            <div style={{fontSize:12,fontWeight:600,color:NC.alto.bg,marginTop:2}}>{eq.notas}</div>
+          </div>}
+        </div>
+      </div>
+
+      {eq.nivel==="piloto_fuera"?(
+        <div style={{margin:"0 14px 34px",background:"#F8FAFC",border:`1.5px dashed ${CP.line}`,
+          borderRadius:14,padding:"22px 20px",textAlign:"center"}}>
+          <div style={{fontSize:28,marginBottom:8}}>❄️</div>
+          <div style={{fontSize:14,fontWeight:800,color:"#475569"}}>Fuera del piloto</div>
+          <div style={{fontSize:12,color:"#64748B",marginTop:6,lineHeight:1.6,maxWidth:340,marginLeft:"auto",marginRight:"auto"}}>
+            Este equipo no está dentro del alcance activo de Shield: no se calcula su IRM ni hay protocolo
+            disponible. No significa que esté en condición segura — significa que todavía no se está midiendo.
+            Actívalo desde el engranaje, en la pestaña "Áreas y prioridad".
+          </div>
+        </div>
+      ):(<>
+      <div style={{margin:"0 14px 12px",background:"#fff",borderRadius:14,padding:"15px 18px",border:`1px solid ${CP.line}`}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:10,marginBottom:13,flexWrap:"wrap"}}>
+          <span style={{fontSize:10,color:CP.mute,fontWeight:700,letterSpacing:1.4}}>DESCOMPOSICIÓN DEL ÍNDICE</span>
+          <BarraConfianza cfg={cfg} compacto/>
+        </div>
+        {(eq.detalle||[]).length===0
+          ?<div style={{fontSize:12,color:CP.mute}}>No hay variables activas en el algoritmo.</div>
+          :(eq.detalle||[]).map(d=><FactorFila key={d.id} d={d}/>)}
+        <div style={{marginTop:10,background:"#F8FAFC",border:`1px solid ${CP.line}`,borderRadius:9,
+          padding:"9px 13px",fontSize:11,color:"#5A6E85",lineHeight:1.6}}>
+          Base ponderada <b style={{color:CP.navy}}>{eq.base}</b>
+          {" "}→ IRM <b style={{color:c.bg}}>{eq.irm===null?"—":eq.irm}</b>
+          {cfg.factorAmbiental?.activo&&eq.factorT&&eq.factorT!==1&&<div style={{marginTop:4,color:CP.blue}}>
+            🌡️ Ambiente de planta ({ambiente?.temp}°C · {ambiente?.humedad}% HR) acelera ×{eq.factorT.toFixed(2)}
+            {" "}las variables de tiempo sin intervención (temp ×{eq.factorTemp.toFixed(2)} · humedad ×{eq.factorHum.toFixed(2)}).
+          </div>}
+          {sinDatos.length>0&&<div style={{marginTop:6,color:"#B45309"}}>
+            {sinDatos.length} variable(s) sin dato registrado: {sinDatos.map(d=>d.nombre).join(", ")}. Se penalizan hasta que se midan.
+          </div>}
+        </div>
+      </div>
+
+      <div style={{margin:"0 14px 34px",background:"#fff",borderRadius:14,overflow:"hidden",border:`1px solid ${CP.line}`}}>
+        <div style={{padding:"13px 16px",borderBottom:`1px solid ${CP.line}`,display:"flex",
+          justifyContent:"space-between",alignItems:"center",gap:10}}>
+          <span style={{fontSize:10,color:CP.mute,fontWeight:700,letterSpacing:1.4}}>PROTOCOLO DE ACCIONES</span>
+          <span style={{fontSize:9.5,background:NC[planNivel].soft,color:NC[planNivel].txt,padding:"3px 9px",
+            borderRadius:8,fontWeight:700}}>{NC[planNivel].label}</span>
+        </div>
+        {accs.map((a,i)=>{
+          const ok=!!done[a.t];
+          const clickable=!ok&&planNivel!=="bajo";
+          return(
+            <div key={i} onClick={()=>clickable&&onAccion(a)}
+              style={{display:"flex",alignItems:"center",gap:12,padding:"13px 16px",
+                borderBottom:i<accs.length-1?`1px solid ${CP.line}`:"none",
+                cursor:clickable?"pointer":"default",background:ok?"#F6FBF8":"#fff"}}>
+              <div style={{width:26,height:26,borderRadius:"50%",flexShrink:0,display:"flex",alignItems:"center",
+                justifyContent:"center",background:ok?NC.bajo.bg:c.bg+"1A",border:`1.5px solid ${ok?NC.bajo.bg:c.bg+"55"}`}}>
+                <span style={{color:ok?"#fff":c.bg,fontSize:ok?13:11,fontWeight:800}}>{ok?"✓":i+1}</span>
+              </div>
+              <div style={{flex:1,minWidth:0}}>
+                <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
+                  <span style={{fontSize:12.5,fontWeight:ok?500:700,color:ok?CP.mute:CP.navy,
+                    textDecoration:ok?"line-through":"none"}}>{a.t}</span>
+                  {!ok&&a.poder>0&&<span style={{fontSize:8.5,fontWeight:700,letterSpacing:.3,padding:"2px 7px",
+                    borderRadius:6,background:badgePoder(a.poder).bg,color:badgePoder(a.poder).fg,flexShrink:0}}>
+                    {badgePoder(a.poder).label}</span>}
+                </div>
+                <div style={{fontSize:10.5,color:ok?NC.bajo.bg:CP.mute,marginTop:2}}>
+                  {ok?`Completado · ${done[a.t].fecha}`:a.desc}</div>
+              </div>
+              {clickable&&<span style={{fontSize:14,color:"#C3CEDB",flexShrink:0}}>›</span>}
+            </div>
+          );
+        })}
+        {todas&&<div style={{padding:"12px 16px",background:NC.bajo.soft,textAlign:"center",
+          fontSize:12,fontWeight:700,color:NC.bajo.bg}}>Protocolo completado — equipo protegido</div>}
+      </div>
+      </>)}
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════
+   APP
+   ═══════════════════════════════════════════════════════════ */
+/* Modo kiosco: index.html?area=DISPERSORAS abre esa área directo,
+   sin panel general ni acceso al engranaje de configuración. */
+function leerAreaFija(){
+  try{
+    const p=new URLSearchParams(window.location.search).get("area");
+    if(!p) return null;
+    return AREAS.find(a=>a.toLowerCase()===p.trim().toLowerCase())||null;
+  }catch(e){ return null; }
+}
+
+function App(){
+  const areaFija=useMemo(leerAreaFija,[]);
+  const [cfg,setCfg]=useState(()=>leerCfg()||JSON.parse(JSON.stringify(CONFIG_DEFAULT)));
+  const [ambiente,setAmbiente]=useState(()=>leerAmbiente()||{...AMBIENTE_DEFAULT});
+  const [ambienteModal,setAmbienteModal]=useState(false);
+  const [vista,setVista]=useState(areaFija?"planta":"panel");
+  const [sel,setSel]=useState(null);
+  const [overrides,setOverrides]=useState({});
+  const [completadas,setCompletadas]=useState({});
+  const [modalAccion,setModalAccion]=useState(null);
+  const [guia,setGuia]=useState(false);
+  const [config,setConfig]=useState(false);       // panel de configuración abierto (sin candado por ahora)
+  const [bitacora,setBitacora]=useState([]);
+  const [fiesta,setFiesta]=useState(null);
+  const [conexion,setConexion]=useState(BACKEND_URL?"reintentando":"local");
+  const ultimoCfgJson=useRef(null);
+  const ultimoOvJson=useRef(null);
+  const ultimoAmbJson=useRef(null);
+
+  /* ── Sincronización con el backend ─────────────────────── */
+  const refrescar=async()=>{
+    if(!BACKEND_URL) return;
+    const [c,e,a]=await Promise.all([apiGet("config"),apiGet("equipos"),apiGet("ambiente")]);
+    if(!c&&!e&&!a){ setConexion("reintentando"); return; }
+    setConexion("conectado");
+    if(c&&c.cfg){
+      const j=JSON.stringify(c.cfg);
+      if(j!==ultimoCfgJson.current){ ultimoCfgJson.current=j; setCfg(c.cfg); }
+    }
+    if(e&&e.overrides){
+      const j=JSON.stringify(e.overrides);
+      if(j!==ultimoOvJson.current){ ultimoOvJson.current=j; setOverrides(e.overrides); }
+    }
+    if(a&&a.temp!=null){
+      const nuevoAmb={temp:a.temp,humedad:a.humedad,actualizado:a.actualizadoEn,por:a.actualizadoPor};
+      const j=JSON.stringify(nuevoAmb);
+      if(j!==ultimoAmbJson.current){ ultimoAmbJson.current=j; setAmbiente(nuevoAmb); }
+    }
+  };
+  useEffect(()=>{
+    if(!BACKEND_URL) return;
+    refrescar();
+    const id=setInterval(refrescar,25000);
+    return ()=>clearInterval(id);
+  },[]);
+
+  const equipos=useMemo(()=>EQUIPOS_BASE.map(e=>componer(e,overrides[e.id]||{},cfg,ambiente)),[overrides,cfg,ambiente]);
+  const planNiveles=useMemo(()=>{
+    const m={}; EQUIPOS_BASE.forEach(e=>{const r=componer(e,{},cfg,ambiente); m[e.id]=r.nivel==="sinmodelo"?"bajo":r.nivel;});
+    return m;
+  },[cfg,ambiente]);
+  const eqSel=sel?equipos.find(e=>e.id===sel.id)||null:null;
+
+  const actualizarAmbiente=async(temp,humedad,nombre)=>{
+    if(BACKEND_URL){
+      const r=await apiPost("actualizarAmbiente",{temp,humedad,nombre});
+      if(!r||r.ok===false) return {ok:false,error:(r&&r.error)||"No se pudo contactar al servidor."};
+      const nuevoAmb={temp:r.temp,humedad:r.humedad,actualizado:r.actualizadoEn,por:r.actualizadoPor};
+      ultimoAmbJson.current=JSON.stringify(nuevoAmb);
+      setAmbiente(nuevoAmb); setConexion("conectado");
+    } else {
+      const nuevoAmb={temp,humedad,actualizado:new Date().toLocaleString("es-CL"),por:nombre};
+      setAmbiente(nuevoAmb); guardarAmbiente(nuevoAmb);
+    }
+    return {ok:true};
+  };
+
+  const guardarConfig=async(nuevo,nombre)=>{
+    const antes=calcConfianza(cfg).confianza;
+    const despues=calcConfianza(nuevo).confianza;
+    if(BACKEND_URL){
+      const r=await apiPost("guardarConfig",{nombre:nombre||"Sin identificar",clave:CLAVE_BACKEND_AUTOMATICA,cfg:nuevo,
+        confianzaAntes:antes,confianzaDespues:despues});
+      if(!r||r.ok===false) return {ok:false,error:(r&&r.error)||"No se pudo contactar al servidor."};
+      ultimoCfgJson.current=JSON.stringify(r.cfg||nuevo);
+      setCfg(r.cfg||nuevo);
+      setConexion("conectado");
+    } else {
+      setCfg(nuevo); guardarCfg(nuevo);
+    }
+    setBitacora(b=>[{usuario:nombre||"Sin identificar",fecha:new Date().toLocaleString("es-CL"),conf:despues},...b].slice(0,12));
+    setConfig(false);
+    return {ok:true};
+  };
+
+  const completar=async(id,texto,tipo,operador,notas,extra)=>{
+    const base=EQUIPOS_BASE.find(e=>e.id===id)||{};
+    const plan=planNiveles[id];
+    const lista=accionesDe(plan,cfg);
+    const prev=completadas[id]||{};
+    const nuevo={...prev,[texto]:{operador,notas,fecha:new Date().toLocaleString("es-CL"),tipo}};
+    const todo=lista.length>0&&lista.every(a=>!!nuevo[a.t]);
+    let ch={...(ACCIONES_POR_TIPO[tipo]?.afecta||{})};
+    if(tipo==="medir_atp"&&extra?.atp!=null){ ch={...ch,atp:extra.atp}; }
+    else if(tipo==="medir_ph"&&extra?.ph!=null){ ch={...ch,ph:extra.ph}; }
+    if(todo){
+      const prevO=overrides[id]||{};
+      const atpF=extra?.atp!=null?extra.atp:(prevO.atp!=null?prevO.atp:78);
+      ch={...ch, dias_det:0, dias_fab:0, dias_paa:0, dias_san:0,
+        dias_pig:base.dias_pig!=null?0:null, atp:Math.min(atpF,90),
+        hist:0,
+        ultima_san:new Date().toLocaleDateString("es-CL")};
+    }
+    const previoOv=overrides[id]||{};
+    let nuevosOv={...previoOv,...ch};
+    if(todo) delete nuevosOv.ph;   // deja que el pH se recalcule desde el ATP saneado
+    setCompletadas(p=>({...p,[id]:nuevo}));
+
+    if(BACKEND_URL){
+      const r=await apiPost("completarAccion",{equipoId:id,equipoCodigo:base.codigo,accion:texto,tipo,
+        operador,notas,cambios:ch});
+      if(r&&r.ok){
+        ultimoOvJson.current=JSON.stringify(r.overrides||{});
+        setOverrides(r.overrides||{});
+        nuevosOv=(r.overrides&&r.overrides[id])||nuevosOv;
+        setConexion("conectado");
+      } else {
+        setConexion("reintentando");
+        setOverrides(p=>({...p,[id]:nuevosOv}));   // aplica localmente mientras se recupera la conexión
+      }
+    } else {
+      setOverrides(p=>({...p,[id]:nuevosOv}));
+    }
+
+    const nuevoIrm=componer(base,nuevosOv,cfg,ambiente).irm;
+    if(todo){
+      const antes=equipos.find(e=>e.id===id)?.irm||0;
+      setTimeout(()=>setFiesta({equipo:base,irmAntes:antes,irmAhora:nuevoIrm}),1200);
+    }
+    return {nuevoIrm,todoCompletado:todo};
+  };
+
+  return(
+    <div style={{maxWidth:860,margin:"0 auto",position:"relative"}}>
+      {guia&&<GuiaModal onClose={()=>setGuia(false)}/>}
+      {config&&<ConfigPanel cfgInicial={cfg} bitacora={bitacora} conexion={conexion}
+        onGuardar={guardarConfig} onClose={()=>setConfig(false)}/>}
+      {modalAccion&&<AccionModal accion={modalAccion.accion} equipo={modalAccion.equipo}
+        irmActual={modalAccion.equipo?.irm} onClose={()=>setModalAccion(null)}
+        onComplete={completar}/>}
+      {fiesta&&<CelebrationModal equipo={fiesta.equipo} irmAntes={fiesta.irmAntes} irmAhora={fiesta.irmAhora}
+        onClose={()=>setFiesta(null)}/>}
+      {ambienteModal&&<AmbienteModal ambiente={ambiente} cfg={cfg} onClose={()=>setAmbienteModal(false)}
+        onGuardar={actualizarAmbiente}/>}
+
+      {!areaFija&&vista==="panel"&&<Panel equipos={equipos} cfg={cfg} conexion={conexion} ambiente={ambiente}
+        onEntrar={()=>setVista("planta")} onGuia={()=>setGuia(true)} onConfig={()=>setConfig(true)}
+        onAmbiente={()=>setAmbienteModal(true)}/>}
+      {vista==="planta"&&(areaFija
+        ?<VistaSector equipos={equipos} cfg={cfg} area={areaFija} ambiente={ambiente} conexion={conexion}
+          onSelectEquipo={eq=>{setSel(eq);setVista("equipo");}}/>
+        :<General equipos={equipos} cfg={cfg} conexion={conexion} ambiente={ambiente}
+          onBack={()=>setVista("panel")} onSelectEquipo={eq=>{setSel(eq);setVista("equipo");}}
+          onAmbiente={()=>setAmbienteModal(true)}/>)}
+      {vista==="equipo"&&eqSel&&<EquipoDetalle eq={eqSel} cfg={cfg} planNivel={planNiveles[eqSel.id]} ambiente={ambiente}
+        backLabel={areaFija?"Sector":"Planta"}
+        completadas={completadas} onBack={()=>setVista("planta")}
+        onAccion={a=>setModalAccion({accion:a,equipo:eqSel})}/>}
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
+</script>
+</body>
+</html>

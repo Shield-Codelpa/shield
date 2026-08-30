@@ -55,7 +55,7 @@ const { useState, useMemo, useEffect, useRef } = React;
    — ver SETUP_BACKEND.md — para que el panel padre y las pantallas
    de sector compartan una sola configuración y un solo histórico.
    ═══════════════════════════════════════════════════════════ */
-const BACKEND_URL = "https://script.google.com/macros/s/AKfycbx6XL1-n0ZQjI472b6ng6rfUbZL8tepNxt47igX9N-mZoQ0ZofbC4u7cQk0zMPVUTDv/exec";
+const BACKEND_URL = "";
 
 /* Clave que se envía automáticamente al backend al guardar configuración —
    sin pedirla en pantalla, para que el acceso quede abierto por ahora.
@@ -1731,7 +1731,7 @@ function AmbienteModal({ambiente,cfg,onClose,onGuardar}){
 /* ═══════════════════════════════════════════════════════════
    VISTA 1 · PANEL DE PLANTA (entrada del sistema)
    ═══════════════════════════════════════════════════════════ */
-function Panel({equipos,cfg,conexion,ambiente,onEntrar,onGuia,onConfig,onAmbiente}){
+function Panel({equipos,cfg,conexion,ambiente,onEntrar,onGuia,onConfig,onAmbiente,onSincronizar}){
   const vivos=equipos.filter(e=>e.nivel!=="inhabilitado"&&e.irm!==null);
   const irmP=vivos.length?Math.round(vivos.reduce((s,e)=>s+e.irm,0)/vivos.length):null;
   const c=cfg.cortes;
@@ -1837,7 +1837,13 @@ function Panel({equipos,cfg,conexion,ambiente,onEntrar,onGuia,onConfig,onAmbient
             fontWeight:700,cursor:"pointer",textDecoration:"underline"}}>Guía rápida</button>
         </div>
 
-        <div style={{marginTop:14}}><Conexion estado={conexion}/></div>
+        <div style={{marginTop:14,display:"flex",alignItems:"center",gap:12,justifyContent:"center",flexWrap:"wrap"}}>
+          <Conexion estado={conexion}/>
+          {conexion!=="local"&&<button onClick={onSincronizar} style={{background:"none",border:"none",
+            color:CP.blue,fontSize:11,fontWeight:700,cursor:"pointer",textDecoration:"underline",padding:0}}>
+            Sincronizar ahora
+          </button>}
+        </div>
         <div style={{marginTop:8,fontSize:10,color:CP.mute}}>
           Abraham Duarte (I+D) · José Osorio (Optimización de Procesos)
         </div>
@@ -1946,7 +1952,7 @@ function VistaSector({equipos,cfg,area,ambiente,conexion,onSelectEquipo}){
 /* ═══════════════════════════════════════════════════════════
    VISTA 2 · PLANTA
    ═══════════════════════════════════════════════════════════ */
-function General({equipos,cfg,onSelectEquipo,onBack,areaFija=null,conexion=null,ambiente=null,onAmbiente}){
+function General({equipos,cfg,onSelectEquipo,onBack,areaFija=null,conexion=null,ambiente=null,onAmbiente,onSincronizar}){
   const [af,setAf]=useState(areaFija||"TODAS");
   const [bq,setBq]=useState("");
   const [ord,setOrd]=useState("prioridad");
@@ -2012,6 +2018,10 @@ function General({equipos,cfg,onSelectEquipo,onBack,areaFija=null,conexion=null,
         {/* En vista de sector la lectura ambiental es de solo lectura: es un dato de planta,
             y 12 tablets escribiéndolo generaría conflictos. Se edita desde el panel general. */}
         <AmbienteChip ambiente={ambiente} cfg={cfg} onClick={areaFija?null:onAmbiente} compacto/>
+        {!areaFija&&conexion!=="local"&&<button onClick={onSincronizar} style={{background:"none",border:"none",
+          color:CP.blue,fontSize:10.5,fontWeight:700,cursor:"pointer",textDecoration:"underline",padding:0}}>
+          ↺ Sincronizar
+        </button>}
         {areaFija&&<Conexion estado={conexion}/>}
       </div>
 
@@ -2317,7 +2327,7 @@ function App(){
   useEffect(()=>{
     if(!BACKEND_URL) return;
     refrescar();
-    const id=setInterval(refrescar,25000);
+    const id=setInterval(refrescar,5000);   // cada 5 s — suficiente para que el padre vea cambios del sector en segundos
     return ()=>clearInterval(id);
   },[]);
 
@@ -2393,7 +2403,12 @@ function App(){
         setConexion("conectado");
       } else {
         setConexion("reintentando");
-        setOverrides(p=>({...p,[id]:nuevosOv}));   // aplica localmente mientras se recupera la conexión
+        setOverrides(p=>({...p,[id]:nuevosOv}));
+        // Si falla el backend, la acción quedó solo en ESTE navegador.
+        // El padre no se va a actualizar hasta que el backend responda.
+        // El usuario verá el punto amarillo "Reconectando…" como señal.
+        console.warn("Shield: acción guardada solo localmente — backend no respondió.",
+          "Equipo:",base.codigo, "Acción:",texto, "Error:",r?.error);
       }
     } else {
       setOverrides(p=>({...p,[id]:nuevosOv}));
@@ -2422,13 +2437,13 @@ function App(){
 
       {!areaFija&&vista==="panel"&&<Panel equipos={equipos} cfg={cfg} conexion={conexion} ambiente={ambiente}
         onEntrar={()=>setVista("planta")} onGuia={()=>setGuia(true)} onConfig={()=>setConfig(true)}
-        onAmbiente={()=>setAmbienteModal(true)}/>}
+        onAmbiente={()=>setAmbienteModal(true)} onSincronizar={refrescar}/>}
       {vista==="planta"&&(areaFija
         ?<VistaSector equipos={equipos} cfg={cfg} area={areaFija} ambiente={ambiente} conexion={conexion}
           onSelectEquipo={eq=>{setSel(eq);setVista("equipo");}}/>
         :<General equipos={equipos} cfg={cfg} conexion={conexion} ambiente={ambiente}
           onBack={()=>setVista("panel")} onSelectEquipo={eq=>{setSel(eq);setVista("equipo");}}
-          onAmbiente={()=>setAmbienteModal(true)}/>)}
+          onAmbiente={()=>setAmbienteModal(true)} onSincronizar={refrescar}/>)}
       {vista==="equipo"&&eqSel&&<EquipoDetalle eq={eqSel} cfg={cfg} planNivel={planNiveles[eqSel.id]} ambiente={ambiente}
         backLabel={areaFija?"Sector":"Planta"}
         completadas={completadas} onBack={()=>setVista("planta")}

@@ -64,6 +64,16 @@ input[type=number]{width:110px;text-align:right;font-weight:700}
 .kpis{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
 @media (max-width:560px){.kpis{grid-template-columns:1fr}}
 .kpi{border:1px solid var(--line);border-radius:12px;padding:12px}
+.kpi.btn{cursor:pointer;text-align:left;background:var(--card);font:inherit;color:inherit}
+.kpi.btn:hover{border-color:var(--blue)}
+.kpi .more{font-size:11px;color:var(--blue);font-weight:700;margin-top:4px}
+.desg{background:var(--bg);border:1px solid var(--line);border-radius:11px;padding:11px 13px;margin-top:10px;font-size:13px}
+.desg .ln{display:grid;grid-template-columns:110px 1fr auto;gap:8px;padding:5px 0;border-top:1px solid var(--line);align-items:baseline}
+.desg .ln:first-child{border-top:none}
+.desg .ln span:first-child{font-weight:800}
+.desg .ln span:nth-child(2){color:var(--ink2);font-family:Consolas,monospace;font-size:12px}
+.desg .ln b{white-space:nowrap}
+tr.hl td{background:var(--blueSoft)}
 .kpi .l{font-size:10px;letter-spacing:1px;color:var(--mute);font-weight:800;text-transform:uppercase}
 .kpi .v{font-size:24px;font-weight:800;letter-spacing:-.5px;margin-top:2px}
 .kpi .s{font-size:11px;color:var(--ink2)}
@@ -178,7 +188,7 @@ summary{cursor:pointer;font-weight:700;font-size:12.5px;color:var(--blue)}
       <p class="muted" style="margin:6px 0">Opcional. Agrega una nebulización rápida de PAA cuando el IRM entra en precaución, y deja la sanitización completa solo para cuando la nebulización no alcanza. Todos estos valores son supuestos hasta tener la cotización real.</p>
       <div class="cost"><span class="n">Usar nebulización intermedia</span><select id="neb"><option value="0">No</option><option value="1">Sí</option></select></div>
       <div id="costosPaa"></div>
-      <div class="cost"><span class="n">Verificar con kit después de cada nebulización<span class="src sup">SUPUESTO</span></span><select id="paaKit"><option value="1">Sí</option><option value="0">No</option></select>
+      <div class="cost"><span class="n">Verificar con kit después de cada nebulización</span><select id="paaKit"><option value="0">No</option><option value="1">Sí</option></select>
         <span class="help">El kit (≈ $20.500) es casi todo el costo de una nebulización. Define si cada una se verifica o solo se verifica la sanitización completa.</span></div>
     </details>
   </div>
@@ -189,7 +199,14 @@ summary{cursor:pointer;font-weight:700;font-size:12.5px;color:var(--blue)}
   <div class="card">
     <h2>3 · Resultado anual · sector Maderas</h2>
     <div class="kpis" id="kpis"></div>
+    <div id="desglose"></div>
     <div id="alertas"></div>
+  </div>
+
+  <div class="card">
+    <h2>Frecuencia por equipo según condición</h2>
+    <table id="frec"></table>
+    <p class="muted" style="margin-top:8px">Con la configuración elegida a la izquierda; solo cambian temperatura y humedad. La nebulización con PAA no lleva kit de chequeo y la sanitización completa queda como piso del calendario. La fila destacada es la condición seleccionada.</p>
   </div>
 
   <div class="card">
@@ -343,7 +360,7 @@ function svgEquipo(fig,fill,stroke,valor){
     <ellipse cx="40" cy="21" rx="17" ry="4" fill="rgba(255,255,255,.26)"/>${T(40,45)}`;
   return `<svg width="84" height="97" viewBox="0 0 80 92" style="display:block;margin:0 auto" aria-hidden="true">${b}</svg>`;
 }
-let S={...PRESETS.extremo, eq:EQUIPOS.map(e=>({...e,incl:true,fab:null})), preset:"extremo", neb:0, piso:1, paaKit:1, vars:VARS_BASE.map(v=>({...v}))};
+let S={...PRESETS.extremo, eq:EQUIPOS.map(e=>({...e,incl:true,fab:null})), preset:"extremo", neb:0, piso:1, paaKit:0, vars:VARS_BASE.map(v=>({...v}))};
 const $=id=>document.getElementById(id);
 const clp=n=>"$"+Math.round(n).toLocaleString("es-CL");
 const num=(n,d=0)=>Number(n).toLocaleString("es-CL",{maximumFractionDigits:d,minimumFractionDigits:d});
@@ -419,7 +436,7 @@ function calc(){
   const totCal=T(r=>r.cc.total), totSh=T(r=>r.cs.total), delta=totSh-totCal;
   const nebSh=T(r=>r.sh.nNeb);
   $("kpis").innerHTML=`
-    <div class="kpi"><div class="l">Sanitizaciones / año</div><div class="v">${num(T(r=>r.sh.nSan))}</div><div class="s">Shield · vs ${num(T(r=>r.cal.nSan))} por calendario${nebSh?` · + ${num(nebSh)} nebulizaciones`:""}</div></div>
+    <button class="kpi btn" id="kpiSan" aria-expanded="${S.verDesg?"true":"false"}"><div class="l">Sanitizaciones / año</div><div class="v">${num(T(r=>r.sh.nSan))}</div><div class="s">Shield · vs ${num(T(r=>r.cal.nSan))} por calendario${nebSh?` · + ${num(nebSh)} nebulizaciones`:""}</div><div class="more">${S.verDesg?"Ocultar desglose ▴":"Ver desglose ▾"}</div></button>
     <div class="kpi"><div class="l">Costo anual Shield</div><div class="v">${clp(totSh)}</div><div class="s">vs ${clp(totCal)} calendario</div></div>
     <div class="kpi"><div class="l">Costo adicional</div><div class="v" style="color:${delta>0?"var(--bad)":"var(--ok)"}">${delta>=0?"+":"−"}${clp(Math.abs(delta))}</div><div class="s">${delta>=0?"lo que cuesta pasar a Shield":"Shield ahorra frente al calendario"}</div></div>`;
 
@@ -430,6 +447,37 @@ function calc(){
   const expCal=T(r=>r.cal.dExp), expSh=T(r=>r.sh.dExp), critCal=T(r=>r.cal.dCrit);
   if(expSh/n>60) al.push(`<div class="alert bad"><b>Ni sanitizando sin parar se controla el riesgo.</b> Aun con Shield, los equipos pasan en promedio ${num(expSh/n)} días al año sobre el umbral: la condición ambiental y de operación supera lo que la limpieza puede corregir.</div>`);
   $("alertas").innerHTML=al.join("");
+  $("kpiSan").onclick=()=>{S.verDesg=!S.verDesg;calc();};
+  const sanT=T(r=>r.sh.nSan), porEq=sanT/n, cada=v=>v>0?365/v:0;
+  const dur=diasPorSan, opSem=sanT/52*dur;
+  $("desglose").innerHTML=!S.verDesg?"":`<div class="desg">
+    <div class="ln"><span>Por sector</span><span>${num(sanT)} ÷ 52 semanas</span><b>${num(sanT/52,1)} por semana</b></div>
+    <div class="ln"><span>Por equipo</span><span>${num(sanT)} ÷ ${n} equipo${n>1?"s":""}</span><b>${num(porEq,1)} al año · ${porEq?"cada "+num(cada(porEq),1)+" días":"—"}</b></div>
+    ${nebSh?`<div class="ln"><span>Nebulización</span><span>${num(nebSh)} ÷ ${n} equipo${n>1?"s":""}</span><b>${num(nebSh/n,1)} al año · cada ${num(cada(nebSh/n),1)} días</b></div>`:""}
+    <div class="ln"><span>Carga operador</span><span>${num(sanT/52,1)} × ${num(dur,2)} días</span><b>${num(opSem,1)} días de operador por semana</b></div>
+  </div>`;
+
+  /* frecuencia por condición (misma configuración, solo cambia el clima) */
+  const conds=[["Templado",PRESETS.hoy],["Verano",PRESETS.verano],["Extremo",PRESETS.extremo]];
+  const paaOn=S.vars.some(v=>v.id==="paa"&&v.activa&&v.peso>0);
+  const fmtCada=d=>!isFinite(d)||d<=0?"—":d>=60?`cada ~${num(d/30,0)} meses`:`cada ${num(d,0)} días`;
+  const kNo={...k,paaKit:0};
+  const filas=conds.map(([nom,pr])=>{
+    const pc={...p,temp:pr.temp,hum:pr.hum};
+    let sin={nSan:0},con={nSan:0,nNeb:0},xSin=0,xCon=0;
+    res.forEach(r=>{const pe={...pc,fabSem:r.e.fab??S.fabSem};
+      const a=simular(pe,{tipo:"shield",disparo:S.disp,piso:pol.piso},S.vars);
+      const b=simular(pe,{tipo:"shield",disparo:S.disp,neb:true,piso:pol.piso},S.vars);
+      const cl=simular(pe,{tipo:"cal",cada:Math.max(1,k.cada)},S.vars);
+      sin.nSan+=a.nSan;con.nSan+=b.nSan;con.nNeb+=b.nNeb;
+      const cc=costear(cl,kNo).total; xSin+=costear(a,kNo).total-cc; xCon+=costear(b,kNo).total-cc;});
+    const hl=S.temp===pr.temp&&S.hum===pr.hum;
+    const sanEq=con.nSan/n;
+    return `<tr class="${hl?"hl":""}"><td><b>${nom}</b><br><span class="muted">${pr.temp} °C · ${pr.hum} % HR</span></td>
+      <td>sanitizar ${fmtCada(cada(sin.nSan/n))}<br><span class="muted">extra ${clp(xSin)}/año</span></td>
+      <td>${paaOn?`nebulizar ${fmtCada(cada(con.nNeb/n))}<br>+ ${num(sanEq,0)} sanitizaci${Math.round(sanEq)===1?"ón":"ones"} al año<br><span class="muted">extra ${clp(xCon)}/año</span>`:`<span class="muted">Activa la variable de sanitización química para simular PAA</span>`}</td></tr>`;
+  }).join("");
+  $("frec").innerHTML=`<tr><th>Condición</th><th>Sin PAA (solo M2003)</th><th>Con nebulización PAA</th></tr>${filas}`;
 
   const fila=(l,a,b,fmt=clp)=>`<tr><td class="lab">${l}</td><td>${fmt(a)}</td><td>${fmt(b)}</td></tr>`, ent=v=>num(v);
   $("tabla").innerHTML=`<tr><th>Por sector (${n} equipo${n>1?"s":""})</th><th><span class="dot" style="background:var(--s-cal)"></span>Calendario</th><th><span class="dot" style="background:var(--s-shield)"></span>Shield</th></tr>

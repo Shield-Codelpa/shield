@@ -170,6 +170,9 @@ summary{cursor:pointer;font-weight:700;font-size:12.5px;color:var(--blue)}
   <div class="card">
     <h2>2 · Costos unitarios</h2>
     <div id="costos"></div>
+    <h3>Equipos para partir el MVP (una sola vez)</h3>
+    <div id="mvp"></div>
+    <p class="muted" style="margin-top:6px">Precios netos, sin IVA. La pistola de gama baja venía cotizada con IVA: se descontó. Ajusta la cantidad a lo que se vaya a comprar.</p>
     <details>
       <summary>Químico alternativo simulado (PAA)</summary>
       <p class="muted" style="margin:6px 0">Opcional. Agrega una nebulización rápida de PAA cuando el IRM entra en precaución, y deja la sanitización completa solo para cuando la nebulización no alcanza. Todos estos valores son supuestos hasta tener la cotización real.</p>
@@ -197,13 +200,12 @@ summary{cursor:pointer;font-weight:700;font-size:12.5px;color:var(--blue)}
   <div class="card">
     <h2>5 · Equipos del sector Maderas</h2>
     <div class="eqgrid" id="equipos"></div>
-    <p class="muted" style="margin-top:10px">El número dentro de cada equipo es su IRM promedio del año con la sanitización por calendario actual, en la condición elegida arriba: es el riesgo que hoy se acepta sin saberlo. Debajo, lo que Shield haría con ese equipo. Ajusta las fabricaciones por semana de cada uno o sácalo del cálculo (el filtro, por ejemplo, no se lava como un estanque).</p>
+
   </div>
 
   <div class="card">
     <h2>6 · Cruce con producto no conforme</h2>
-    <div class="cost"><span class="n">Costo de un lote no conforme por contaminación <span class="src dato">TU DATO</span></span><input type="number" id="lote" placeholder="CLP" min="0"/></div>
-    <div class="cost"><span class="n">Lotes no conformes por año hoy en Maderas <span class="src dato">TU DATO · opcional</span></span><input type="number" id="lotesHoy" placeholder="n°" min="0"/></div>
+    <div class="cost"><span class="n">Costo de una devolución por contaminación <span class="src dato">TU DATO</span></span><input type="number" id="lote" placeholder="CLP" min="0" value="77448051"/></div>
     <div id="cruce" style="margin-top:12px"></div>
   </div>
 
@@ -276,9 +278,9 @@ function costear(r,k){
   const cSan=intento*eN;
   const litrosPaa=k.paaVol*k.paaPpm/(k.paaConc*10000);       // L de producto comercial por nebulización
   const cNeb=litrosPaa*k.paaPrecio + k.paaHh*k.hh + (k.paaKit?k.kit:0);
-  const cLav=k.lLav*k.agua;
+  const cLavAgua=k.lLav*k.agua, cLavHH=k.hLav*k.hh/Math.max(1,k.hJor), cLav=cLavAgua+cLavHH;
   const san=r.nSan*cSan, neb=r.nNeb*cNeb, lav=r.nLav*cLav;
-  return {eN,intento,cSan,cNeb,cLav,litrosPaa,san,neb,lav,total:san+neb+lav,
+  return {eN,intento,cSan,cNeb,cLav,cLavAgua,cLavHH,litrosPaa,san,neb,lav,total:san+neb+lav,
           diasDet:r.nSan*k.diasLimp*eN + r.nNeb*k.paaHh};
 }
 /*ENGINE-END*/
@@ -301,6 +303,13 @@ const COSTOS=[
   {id:"kit",    n:"Kit de evaluación de bacterias (CLP/u)", v:20527.5, step:0.5, src:"calc", help:"205.275 CLP ÷ 10 kits. Uno por evaluación."},
   {id:"pFalla", n:"Probabilidad de que el chequeo falle (%)", v:20, src:"sup", help:"Si falla, se repite todo el procedimiento."},
   {id:"lLav",   n:"Agua por lavado tras fabricación (L)", v:200, src:"dato", help:"200 kg de agua de proceso ≈ 200 L."},
+  {id:"hLav",   n:"Horas de operador por lavado", v:1.5, step:0.5, src:"dato", help:"Rango real 1 a 2 horas."},
+  {id:"hJor",   n:"Horas por jornada", v:8, src:"sup", help:"Para pasar el costo HH por día a costo por hora."},
+];
+const MVP=[
+  {id:"logger", n:"Logger temperatura y humedad", m:"Omega OM-HL-SH / OM-EL-USB · Newark", precio:156660, qty:1, help:"Cotizado entre $117.930 y $156.660: se usa el tope."},
+  {id:"irB",    n:"Pistola IR de producto · gama media-alta", m:"Veto I0081557", precio:198145, qty:2},
+  {id:"irA",    n:"Pistola IR de producto · gama baja", m:"Veto I0050023", precio:53839, qty:0, help:"$64.068 con IVA."},
 ];
 const COSTOS_PAA=[
   {id:"paaPrecio",n:"PAA comercial (CLP/L)", v:4500, src:"sup"},
@@ -374,9 +383,16 @@ $("hist").onchange=e=>{S.hist=Number(e.target.value);S.preset=null;renderPresets
 $("neb").onchange=e=>{S.neb=Number(e.target.value);calc();};
 $("piso").onchange=e=>{S.piso=Number(e.target.value);calc();};
 $("paaKit").onchange=e=>{S.paaKit=Number(e.target.value);calc();};
-$("lote").oninput=calc;$("lotesHoy").oninput=calc;
+$("lote").oninput=calc;
 
 /* ═════════ CÁLCULO Y RENDER ═════════ */
+function renderMvp(){
+  $("mvp").innerHTML=MVP.map(e=>`<div class="cost"><span class="n">${e.n}<span class="src dato">COTIZADO</span><br><span class="muted">${e.m} · ${clp(e.precio)} c/u</span></span>
+    <span style="display:flex;align-items:center;gap:6px"><span class="muted">×</span><input type="number" id="mvp-${e.id}" value="${e.qty}" min="0" step="1" style="width:56px"/></span>${e.help?`<span class="help">${e.help}</span>`:""}</div>`).join("")
+    +`<div class="cost"><span class="n"><b>Total equipos MVP</b></span><b id="mvpTot"></b></div>`;
+  MVP.forEach(e=>$("mvp-"+e.id).oninput=calc);
+}
+function totalMvp(){return MVP.reduce((a,e)=>a+e.precio*(Number($("mvp-"+e.id).value)||0),0);}
 function leerK(){const k={};[...COSTOS,...COSTOS_PAA].forEach(c=>k[c.id]=Number($("k-"+c.id).value)||0);k.paaKit=S.paaKit;return k;}
 function calc(){
   const p={temp:S.temp,hum:S.hum,fabSem:S.fabSem,lavado:!!S.lavado,ph:S.ph,hist:S.hist,imp:S.imp};
@@ -411,10 +427,8 @@ function calc(){
   const inviables=res.filter(r=>r.sh.nSan&&365/r.sh.nSan<=diasPorSan+1);
   const peor=res.reduce((m,r)=>r.cs.diasDet>m.cs.diasDet?r:m,res[0]);
   if(inviables.length) al.push(`<div class="alert bad"><b>Inviable en la práctica (${inviables.map(r=>r.e.codigo).join(", ")}).</b> Shield pediría sanitizar cada ${num(365/Math.max(...inviables.map(r=>r.sh.nSan)),1)} días, pero cada sanitización deja el equipo ${num(diasPorSan,1)} días detenido. El estanque pasaría más tiempo limpiándose que produciendo: en esta condición la respuesta no es sanitizar más, es cambiar la condición (bajar temperatura o humedad, o un químico de acción rápida).</div>`);
-  else if(peor.cs.diasDet/365>.25) al.push(`<div class="alert warn"><b>Alta carga operativa.</b> ${peor.e.codigo} estaría ${num(peor.cs.diasDet)} días al año detenido por sanitización (${num(peor.cs.diasDet/365*100)} % del año). Ese tiempo sin producir no está en el costo.</div>`);
   const expCal=T(r=>r.cal.dExp), expSh=T(r=>r.sh.dExp), critCal=T(r=>r.cal.dCrit);
   if(expSh/n>60) al.push(`<div class="alert bad"><b>Ni sanitizando sin parar se controla el riesgo.</b> Aun con Shield, los equipos pasan en promedio ${num(expSh/n)} días al año sobre el umbral: la condición ambiental y de operación supera lo que la limpieza puede corregir.</div>`);
-  else al.push(`<div class="alert ${expCal>expSh?"warn":"ok"}"><b>Días en riesgo sin intervenir.</b> Con el calendario actual los ${n} equipos suman <b>${num(expCal)} días-equipo al año</b> sobre el umbral de precaución del área${critCal?` (${num(critCal)} de ellos en crítico)`:""}. Con Shield: ${num(expSh)}. Son ${num(expCal-expSh)} días-equipo de exposición evitados.</div>`);
   $("alertas").innerHTML=al.join("");
 
   const fila=(l,a,b,fmt=clp)=>`<tr><td class="lab">${l}</td><td>${fmt(a)}</td><td>${fmt(b)}</td></tr>`, ent=v=>num(v);
@@ -432,24 +446,27 @@ function calc(){
     <tr><td colspan="3" class="muted" style="text-align:left;padding-top:10px">
       Una sanitización completa cuesta <b>${clp(u.cSan)}</b>: intento ${clp(u.intento)} (HH ${clp(k.diasLimp*k.hh)} + biocida ${clp(k.kgBio*k.precioBio)} + agua ${clp(k.kgBio*k.lPorKg*k.agua)} + kit ${clp(k.kit)}) × ${num(u.eN,2)} intentos esperados.
       ${S.neb?`Una nebulización PAA cuesta <b>${clp(u.cNeb)}</b> (${num(u.litrosPaa,3)} L de producto).`:""}
-      Un lavado cuesta ${clp(u.cLav)}.</td></tr>`;
+      Un lavado cuesta <b>${clp(u.cLav)}</b> (agua ${clp(u.cLavAgua)} + HH ${clp(u.cLavHH)}).</td></tr>`;
 
-  const lote=Number($("lote").value)||0, lotesHoy=Number($("lotesHoy").value)||0;
+  const lote=Number($("lote").value)||0, inv=totalMvp();
+  $("mvpTot").textContent=clp(inv);
   let cr="";
-  if(!lote){cr=`<p class="muted">Ingresa el costo de un lote no conforme para calcular el punto de equilibrio.</p>`;}
-  else if(delta<=0){cr=`<div class="alert ok"><b>Shield cuesta menos que el calendario</b> en esta condición (${clp(-delta)} menos al año), antes de contar un solo lote salvado. Cada lote no conforme evitado es ganancia neta de ${clp(lote)}.</div>`;}
+  if(!lote){cr=`<p class="muted">Ingresa el costo de una devolución para hacer la cuenta.</p>`;}
   else{
-    const eq=delta/lote;
-    cr=`<div style="text-align:center;padding:6px 0 10px"><div class="muted">Shield se paga si evita al menos</div>
-      <div class="big">${num(Math.ceil(eq*10)/10,1)} lote${eq>1?"s":""} no conforme${eq>1?"s":""} al año</div>
-      <div class="muted">${clp(delta)} de costo adicional ÷ ${clp(lote)} por lote</div></div>`;
-    if(lotesHoy>0){
-      const pct=eq/lotesHoy*100;
-      cr+=`<div class="alert ${pct<=100?"ok":"bad"}">${pct<=100
-        ?`Hoy Maderas tiene ${num(lotesHoy)} lote(s) no conforme(s) al año. Basta con que Shield evite el <b>${num(pct)} %</b> de ellos para pagar el costo extra. Cada lote evitado sobre esa cifra es ahorro de ${clp(lote)}.`
-        :`Hoy Maderas tiene ${num(lotesHoy)} lote(s) no conforme(s) al año: aunque Shield los evitara todos, no alcanza a pagar el costo extra de esta condición. Conviene una política menos exigente o un químico más barato.`}</div>`;
-    }
-    cr+=`<p class="muted" style="margin-top:8px">Costo por día-equipo de exposición evitado: <b>${clp(expCal>expSh?delta/(expCal-expSh):0)}</b>.</p>`;
+    const saldo=lote-inv-delta;
+    const ln=(t,v,b)=>`<tr${b?' class="tot"':''}><td class="lab" style="${b?"color:var(--ink)":""}">${t}</td><td>${v}</td></tr>`;
+    cr=`<table>
+      ${ln("Devolución evitada (1 vez)",clp(lote))}
+      ${ln(delta>=0?"− Gasto extra en limpieza, primer año":"+ Ahorro en limpieza, primer año",(delta>=0?"−":"+")+clp(Math.abs(delta)))}
+      ${ln("− Equipos del MVP (una sola vez)","−"+clp(inv))}
+      ${ln("Queda a favor",`<span style="color:${saldo>=0?"var(--ok)":"var(--bad)"}">${saldo<0?"−":""}${clp(Math.abs(saldo))}</span>`,true)}
+    </table>`;
+    if(delta>0){
+      const anios=(lote-inv)/delta;
+      cr+=`<div style="text-align:center;padding:14px 0 4px"><div class="muted">Una sola devolución evitada paga</div>
+        <div class="big">${anios>=1?num(anios,1)+" años":num(anios*12,1)+" meses"} de Shield</div>
+        <div class="muted">Basta con evitar una devolución así cada ${num(anios,1)} años para que el sistema se pague.</div></div>`;
+    } else cr+=`<p class="muted" style="text-align:center;margin-top:12px">En esta condición Shield gasta menos que el calendario: cualquier devolución evitada es ganancia completa.</p>`;
   }
   $("cruce").innerHTML=cr;
 
@@ -458,6 +475,7 @@ function calc(){
 IRM              = Σ riesgo(variable) × peso efectivo
 intento          = HH × días + kg biocida × CLP/kg + agua de dilución + kit
 sanitización     = intento ÷ (1 − probabilidad de falla)   → ${num(u.eN,2)} intentos esperados
+lavado           = L de agua × CLP/L + horas × (HH por día ÷ horas por jornada)
 lavados/año      = fabricaciones por semana del equipo × 52
 costo anual      = Σ por equipo (n° sanitizaciones × costo + n° lavados × ${clp(u.cLav)})
 punto equilibrio = (Shield − Calendario) ÷ costo de un lote no conforme`;
@@ -482,7 +500,7 @@ function renderEquipos(todos,c){
   document.querySelectorAll(".eq-fab").forEach(x=>x.onchange=ev=>{const v=ev.target.value;S.eq[+ev.target.dataset.i].fab=v===""?null:Math.max(0,Math.min(7,Number(v)));calc();});
 }
 
-renderCostos(COSTOS,"costos");renderCostos(COSTOS_PAA,"costosPaa");renderVars();sync();
+renderCostos(COSTOS,"costos");renderMvp();renderCostos(COSTOS_PAA,"costosPaa");renderVars();sync();
 </script>
 </body>
 </html>

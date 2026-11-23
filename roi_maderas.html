@@ -94,6 +94,15 @@ tr.tot td{font-weight:800;border-bottom:none}
 .legend .ln{display:inline-block;width:16px;height:2px;margin-right:6px;vertical-align:middle}
 details{border-top:1px solid var(--line);padding-top:8px;margin-top:8px}
 summary{cursor:pointer;font-weight:700;font-size:12.5px;color:var(--blue)}
+details.card{border-top:1px solid var(--line);padding:16px;margin-top:0}
+details.card>summary{list-style:none;display:flex;justify-content:space-between;align-items:center;gap:10px;font-size:11px;letter-spacing:1.4px;color:var(--mute);font-weight:800;text-transform:uppercase}
+details.card>summary::-webkit-details-marker{display:none}
+details.card>summary::after{content:"Ver ▾";white-space:nowrap;flex-shrink:0;font-size:11px;letter-spacing:0;text-transform:none;color:var(--blue)}
+details.card[open]>summary{margin-bottom:10px}
+details.card[open]>summary::after{content:"Ocultar ▴"}
+.tabs{display:flex;gap:4px;margin-bottom:8px}
+.tabs button{border:1px solid var(--line);background:var(--card);color:var(--ink2);border-radius:8px;padding:5px 10px;font-size:12px;font-weight:700;cursor:pointer}
+.tabs button.on{background:var(--navy);color:#fff;border-color:var(--navy)}
 .formula{font-family:Consolas,monospace;font-size:12px;background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:9px 11px;margin:7px 0;white-space:pre-wrap;color:var(--ink2)}
 .vars{display:grid;grid-template-columns:auto 1fr auto;gap:6px 10px;align-items:center;margin-top:8px}
 .vars input[type=number]{width:64px}
@@ -127,8 +136,8 @@ summary{cursor:pointer;font-weight:700;font-size:12.5px;color:var(--blue)}
 
 <!-- ═════════ COLUMNA IZQUIERDA: PALANCAS Y COSTOS ═════════ -->
 <div>
-  <div class="card">
-    <h2>1 · Condición de planta (palancas del algoritmo)</h2>
+  <details class="card">
+    <summary>1 · Condición de planta (palancas del algoritmo)</summary>
     <div class="presets" id="presets"></div>
 
     <div class="lev"><div class="row"><label for="temp">Temperatura ambiente</label><span class="val" id="v-temp"></span></div>
@@ -175,7 +184,7 @@ summary{cursor:pointer;font-weight:700;font-size:12.5px;color:var(--blue)}
       <div class="vars" id="vars"></div>
       <p class="muted" style="margin-top:6px">Mismas escalas de riesgo que el panel Shield. Los pesos se reparten solos a 100 % entre las variables marcadas.</p>
     </details>
-  </div>
+  </details>
 
   <div class="card">
     <h2>2 · Costos unitarios</h2>
@@ -204,12 +213,6 @@ summary{cursor:pointer;font-weight:700;font-size:12.5px;color:var(--blue)}
   </div>
 
   <div class="card">
-    <h2>Frecuencia por equipo según condición</h2>
-    <table id="frec"></table>
-    <p class="muted" style="margin-top:8px">Con la configuración elegida a la izquierda; solo cambian temperatura y humedad. La nebulización con PAA no lleva kit de chequeo y la sanitización completa queda como piso del calendario. La fila destacada es la condición seleccionada.</p>
-  </div>
-
-  <div class="card">
     <h2>4 · Calendario actual vs Shield forzado</h2>
     <table id="tabla"></table>
   </div>
@@ -226,12 +229,12 @@ summary{cursor:pointer;font-weight:700;font-size:12.5px;color:var(--blue)}
     <div id="cruce" style="margin-top:12px"></div>
   </div>
 
-  <div class="card">
-    <h2>7 · Cómo se calcula</h2>
+  <details class="card">
+    <summary>7 · Cómo se calcula</summary>
     <div class="formula" id="formulas"></div>
     <p class="muted">La simulación recorre 365 días. Cada día suma un día a los contadores de tiempo, aplica el factor de temperatura × humedad, calcula el IRM con las mismas escalas de Shield y, si pasa el umbral elegido, registra una sanitización y reinicia los contadores. El calendario sanitiza cada N días sin mirar el IRM.</p>
     <p class="muted" style="margin-top:6px"><b>Límite honesto del modelo:</b> el IRM mide riesgo, no predice cuántos lotes se contaminarán. Por eso el cruce con producto no conforme se expresa como punto de equilibrio — cuántos lotes hay que evitar para que el costo extra se pague — y no como un ahorro inventado.</p>
-  </div>
+  </details>
 </div>
 
 </div>
@@ -450,13 +453,15 @@ function calc(){
   $("kpiSan").onclick=()=>{S.verDesg=!S.verDesg;calc();};
   const sanT=T(r=>r.sh.nSan), porEq=sanT/n, cada=v=>v>0?365/v:0;
   const dur=diasPorSan, opSem=sanT/52*dur;
-  $("desglose").innerHTML=!S.verDesg?"":`<div class="desg">
+  const tabDesg=S.tabDesg||"desg";
+  let cuerpo="";
+  if(S.verDesg&&tabDesg==="desg") cuerpo=`<div>
     <div class="ln"><span>Por sector</span><span>${num(sanT)} ÷ 52 semanas</span><b>${num(sanT/52,1)} por semana</b></div>
     <div class="ln"><span>Por equipo</span><span>${num(sanT)} ÷ ${n} equipo${n>1?"s":""}</span><b>${num(porEq,1)} al año · ${porEq?"cada "+num(cada(porEq),1)+" días":"—"}</b></div>
     ${nebSh?`<div class="ln"><span>Nebulización</span><span>${num(nebSh)} ÷ ${n} equipo${n>1?"s":""}</span><b>${num(nebSh/n,1)} al año · cada ${num(cada(nebSh/n),1)} días</b></div>`:""}
     <div class="ln"><span>Carga operador</span><span>${num(sanT/52,1)} × ${num(dur,2)} días</span><b>${num(opSem,1)} días de operador por semana</b></div>
   </div>`;
-
+  if(S.verDesg&&tabDesg==="frec"){
   /* frecuencia por condición (misma configuración, solo cambia el clima) */
   const conds=[["Templado",PRESETS.hoy],["Verano",PRESETS.verano],["Extremo",PRESETS.extremo]];
   const paaOn=S.vars.some(v=>v.id==="paa"&&v.activa&&v.peso>0);
@@ -477,7 +482,10 @@ function calc(){
       <td>sanitizar ${fmtCada(cada(sin.nSan/n))}<br><span class="muted">extra ${clp(xSin)}/año</span></td>
       <td>${paaOn?`nebulizar ${fmtCada(cada(con.nNeb/n))}<br>+ ${num(sanEq,0)} sanitizaci${Math.round(sanEq)===1?"ón":"ones"} al año<br><span class="muted">extra ${clp(xCon)}/año</span>`:`<span class="muted">Activa la variable de sanitización química para simular PAA</span>`}</td></tr>`;
   }).join("");
-  $("frec").innerHTML=`<tr><th>Condición</th><th>Sin PAA (solo M2003)</th><th>Con nebulización PAA</th></tr>${filas}`;
+    cuerpo=`<table><tr><th>Condición</th><th>Sin PAA (solo M2003)</th><th>Con nebulización PAA</th></tr>${filas}</table><p class="muted" style="margin-top:6px">Solo cambian temperatura y humedad. Nebulización sin kit de chequeo; sanitización completa como piso del calendario.</p>`;
+  }
+  $("desglose").innerHTML=!S.verDesg?"":`<div class="desg"><div class="tabs"><button data-t="desg" class="${tabDesg==="desg"?"on":""}">Desglose</button><button data-t="frec" class="${tabDesg==="frec"?"on":""}">Frecuencia por condición</button></div>${cuerpo}</div>`;
+  document.querySelectorAll("#desglose .tabs button").forEach(b=>b.onclick=()=>{S.tabDesg=b.dataset.t;calc();});
 
   const fila=(l,a,b,fmt=clp)=>`<tr><td class="lab">${l}</td><td>${fmt(a)}</td><td>${fmt(b)}</td></tr>`, ent=v=>num(v);
   $("tabla").innerHTML=`<tr><th>Por sector (${n} equipo${n>1?"s":""})</th><th><span class="dot" style="background:var(--s-cal)"></span>Calendario</th><th><span class="dot" style="background:var(--s-shield)"></span>Shield</th></tr>
